@@ -102,6 +102,28 @@ public sealed class OpenRouterImageService
             cancellationToken);
     }
 
+    public Task<byte[]> GenerateAerialViewAsync(
+        string apiKey,
+        string model,
+        byte[] sourceImage,
+        string basePrompt,
+        AerialGenerationOptions options,
+        string resolution,
+        string aspectRatio,
+        CancellationToken cancellationToken = default)
+    {
+        return GenerateAerialViewAsync(
+            apiKey,
+            model,
+            sourceImage,
+            options.RoadviewReferences,
+            basePrompt,
+            options,
+            resolution,
+            aspectRatio,
+            cancellationToken);
+    }
+
     public async Task<byte[]> GenerateAerialViewAsync(
         string apiKey,
         string model,
