@@ -1,14 +1,15 @@
 <Window x:Class="DKAerialView.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DK AerialView 설정" Width="560" Height="430"
+        Title="DK AerialView 설정" Width="620" Height="560"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
 
         <TextBlock Grid.Row="0" Text="Google Maps API Key" VerticalAlignment="Center"/>
         <PasswordBox x:Name="GoogleKeyBox" Grid.Row="0" Grid.Column="1" Margin="8"/>
@@ -20,8 +21,14 @@
         <PasswordBox x:Name="OpenRouterKeyBox" Grid.Row="3" Grid.Column="1" Margin="8"/>
         <TextBlock Grid.Row="4" Text="기본 이미지 모델" VerticalAlignment="Center"/>
         <TextBox x:Name="OpenRouterModelBox" Grid.Row="4" Grid.Column="1" Margin="8"/>
+        <TextBlock Grid.Row="5" Text="AI 기본 프롬프트" VerticalAlignment="Top" Margin="0,12,0,0"/>
+        <TextBox x:Name="OpenRouterPromptBox" Grid.Row="5" Grid.Column="1" Margin="8" Height="130"
+                 AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
 
-        <StackPanel Grid.Row="6" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
+        <TextBlock Grid.Row="6" Grid.ColumnSpan="2" Margin="8" Foreground="#666" TextWrapping="Wrap"
+                   Text="지도/API 키는 로컬 설정 파일에만 저장됩니다. 이미지 모델은 OpenRouter의 image input + image output 지원 모델을 사용하세요."/>
+
+        <StackPanel Grid.Row="7" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Width="90" Margin="4" Content="취소" IsCancel="True"/>
             <Button Width="90" Margin="4" Content="저장" Click="Save_Click"/>
         </StackPanel>
