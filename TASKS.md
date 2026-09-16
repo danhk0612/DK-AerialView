@@ -17,10 +17,13 @@
 - [x] T15 Naver Maps Provider 구현 (위성 지도, 주소 검색, 줌/중심 동기화)
 - [x] T16 Kakao Maps Provider 구현 (SkyView, 주소 검색, 줌/중심 동기화)
 - [x] T17 배포/릴리스 자동화 (v* 태그 → win-x64 self-contained ZIP Release)
+- [x] T18 Google 3D Maps Provider 구현 (Map3DElement, SATELLITE, range/tilt/heading, 주소 검색, 카메라 동기화)
+- [ ] T19 Google 3D 실제 지역 렌더링/캡처 검증
 
 ## 실제 실행 검증 항목
 
-- Google: 지도 로드, 주소 검색, zoom/tilt/heading, 위성 지도, 캡처
+- Google 3D: 3D 건물/지형 로드, 주소 검색, range/tilt/heading, 사용자 카메라 조작, 캡처
+- Google 위성: 지도 로드, 주소 검색, zoom, 캡처
 - Naver: 지도 로드, 주소 검색, zoom/center, 위성 지도, 캡처
 - Kakao: 지도 로드, 주소 검색, zoom/center, SkyView, 캡처
 - OpenRouter: 모델 목록 조회, reference 이미지 요청, 결과 비교/저장
