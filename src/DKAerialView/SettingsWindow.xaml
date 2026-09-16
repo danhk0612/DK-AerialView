@@ -1,0 +1,29 @@
+<Window x:Class="DKAerialView.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DK AerialView 설정" Width="560" Height="430"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Google Maps API Key" VerticalAlignment="Center"/>
+        <PasswordBox x:Name="GoogleKeyBox" Grid.Row="0" Grid.Column="1" Margin="8"/>
+        <TextBlock Grid.Row="1" Text="Naver Client ID" VerticalAlignment="Center"/>
+        <TextBox x:Name="NaverKeyBox" Grid.Row="1" Grid.Column="1" Margin="8"/>
+        <TextBlock Grid.Row="2" Text="Kakao JavaScript Key" VerticalAlignment="Center"/>
+        <PasswordBox x:Name="KakaoKeyBox" Grid.Row="2" Grid.Column="1" Margin="8"/>
+        <TextBlock Grid.Row="3" Text="OpenRouter API Key" VerticalAlignment="Center"/>
+        <PasswordBox x:Name="OpenRouterKeyBox" Grid.Row="3" Grid.Column="1" Margin="8"/>
+        <TextBlock Grid.Row="4" Text="기본 이미지 모델" VerticalAlignment="Center"/>
+        <TextBox x:Name="OpenRouterModelBox" Grid.Row="4" Grid.Column="1" Margin="8"/>
+
+        <StackPanel Grid.Row="6" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Width="90" Margin="4" Content="취소" IsCancel="True"/>
+            <Button Width="90" Margin="4" Content="저장" Click="Save_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

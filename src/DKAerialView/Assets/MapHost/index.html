@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    html, body, #map { width:100%; height:100%; margin:0; overflow:hidden; background:#eceff1; }
+    #message { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font:14px sans-serif; color:#555; pointer-events:none; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="message">지도 초기화 대기 중</div>
+  <script>
+    let map = null;
+    let geocoder = null;
+    let suppressCameraMessage = false;
+
+    const post = payload => window.chrome.webview.postMessage(payload);
+    const message = text => document.getElementById('message').textContent = text || '';
+
+    function loadGoogle(apiKey) {
+      if (!apiKey) {
+        message('설정에서 Google Maps API Key를 입력하세요.');
+        post({ type:'error', message:'Google Maps API Key가 설정되지 않았습니다.' });
+        return;
+      }
+      const existing = document.getElementById('google-maps-script');
+      if (existing) existing.remove();
+      window.__initGoogleMap = () => {
+        map = new google.maps.Map(document.getElementById('map'), {
+          center: { lat:37.5665, lng:126.9780 },
+          zoom:18,
+          tilt:45,
+          heading:315,
+          mapTypeId:'satellite',
+          mapId:'DEMO_MAP_ID',
+          streetViewControl:false,
+          mapTypeControl:true,
+          fullscreenControl:false
+        });
+        geocoder = new google.maps.Geocoder();
+        ['center_changed','zoom_changed','heading_changed','tilt_changed'].forEach(name => map.addListener(name, emitCamera));
+        message('');
+        post({ type:'ready' });
+      };
+      const script = document.createElement('script');
+      script.id = 'google-maps-script';
+      script.async = true;
+      script.defer = true;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&callback=__initGoogleMap&v=weekly`;
+      script.onerror = () => post({ type:'error', message:'Google Maps 스크립트를 불러오지 못했습니다.' });
+      document.head.appendChild(script);
+    }
+
+    function emitCamera() {
+      if (!map || suppressCameraMessage) return;
+      const center = map.getCenter();
+      if (!center) return;
+      post({
+        type:'cameraChanged', lat:center.lat(), lng:center.lng(),
+        zoom:map.getZoom() ?? 18, tilt:map.getTilt() ?? 0, heading:map.getHeading() ?? 0
+      });
+    }
+
+    function setCamera(cmd) {
+      if (!map) return;
+      suppressCameraMessage = true;
+      map.moveCamera({
+        center:{ lat:cmd.lat, lng:cmd.lng }, zoom:cmd.zoom, tilt:cmd.tilt, heading:cmd.heading
+      });
+      setTimeout(() => { suppressCameraMessage = false; emitCamera(); }, 50);
+    }
+
+    async function searchAddress(address) {
+      if (!geocoder || !map) return;
+      try {
+        const response = await geocoder.geocode({ address });
+        const result = response.results && response.results[0];
+        if (!result) throw new Error('검색 결과가 없습니다.');
+        const location = result.geometry.location;
+        map.setCenter(location);
+        post({ type:'geocodeResult', lat:location.lat(), lng:location.lng(), formattedAddress:result.formatted_address });
+      } catch (error) {
+        post({ type:'error', message:`주소 검색 실패: ${error.message || error}` });
+      }
+    }
+
+    window.chrome.webview.addEventListener('message', event => {
+      const cmd = event.data;
+      if (!cmd || !cmd.type) return;
+      if (cmd.type === 'initialize') loadGoogle(cmd.apiKey);
+      else if (cmd.type === 'setCamera') setCamera(cmd);
+      else if (cmd.type === 'searchAddress') searchAddress(cmd.address);
+    });
+
+    post({ type:'hostReady' });
+  </script>
+</body>
+</html>
