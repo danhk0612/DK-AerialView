@@ -46,10 +46,10 @@
 
                 <TextBlock Text="구도 프리셋" FontWeight="SemiBold" FontSize="16" Margin="0,20,0,8"/>
                 <ComboBox x:Name="CameraPresetBox" Height="32" SelectionChanged="CameraPresetBox_SelectionChanged">
-                    <ComboBoxItem Content="일반 조감도" Tag="900,60,315" IsSelected="True"/>
-                    <ComboBoxItem Content="건물 중심" Tag="450,70,325"/>
-                    <ComboBoxItem Content="넓은 부지" Tag="1800,55,320"/>
-                    <ComboBoxItem Content="수직 항공사진" Tag="700,0,0"/>
+                    <ComboBoxItem Content="일반 조감도" Tag="18,900,60,315" IsSelected="True"/>
+                    <ComboBoxItem Content="건물 중심" Tag="19,450,70,325"/>
+                    <ComboBoxItem Content="넓은 부지" Tag="16.5,1800,55,320"/>
+                    <ComboBoxItem Content="수직 항공사진" Tag="19,700,0,0"/>
                 </ComboBox>
 
                 <TextBlock Text="출력" FontWeight="SemiBold" FontSize="16" Margin="0,20,0,8"/>
