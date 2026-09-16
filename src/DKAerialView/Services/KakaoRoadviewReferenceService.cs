@@ -21,10 +21,9 @@ public sealed class KakaoRoadviewReferenceService
         var references = new List<byte[]>();
         var directions = new[] { 0d, 90d, 180d, 270d };
 
-        var captureWindow = new RoadviewCaptureWindow(kakaoJavaScriptKey)
-        {
-            Owner = owner
-        };
+        // Keep the capture window independent from the modal options window / disabled MainWindow.
+        // It is fully hidden off-screen and closed as soon as collection finishes.
+        var captureWindow = new RoadviewCaptureWindow(kakaoJavaScriptKey);
 
         try
         {
@@ -34,18 +33,34 @@ public sealed class KakaoRoadviewReferenceService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var (lat, lng) = Offset(targetLatitude, targetLongitude, options.RoadviewDistanceMeters, bearing);
-                var bytes = await captureWindow.CaptureReferenceAsync(
-                    targetLatitude,
-                    targetLongitude,
-                    lat,
-                    lng,
-                    options.RoadviewSearchRadiusMeters,
-                    options.RoadviewTilt,
-                    options.RoadviewZoom,
-                    cancellationToken);
 
-                if (bytes is { Length: > 0 })
-                    references.Add(bytes);
+                try
+                {
+                    var bytes = await captureWindow.CaptureReferenceAsync(
+                        targetLatitude,
+                        targetLongitude,
+                        lat,
+                        lng,
+                        options.RoadviewSearchRadiusMeters,
+                        options.RoadviewTilt,
+                        options.RoadviewZoom,
+                        cancellationToken);
+
+                    if (bytes is { Length: > 0 })
+                        references.Add(bytes);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Internal per-direction timeout/cancel: skip only this direction.
+                }
+                catch (TimeoutException)
+                {
+                    // Skip only this direction and continue collecting the remaining references.
+                }
+                catch
+                {
+                    // A single unavailable/broken panorama should not abort the aerial generation flow.
+                }
             }
         }
         finally
