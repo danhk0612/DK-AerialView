@@ -24,6 +24,11 @@
 - [x] T22 현재 프레임 캡처 → AI 조감도 생성 → 결과 비교/저장 흐름 연결
 - [x] T23 AI 향상/AI 조감도 기본 프롬프트 설정 분리
 - [ ] T24 AI 조감도 실제 OpenRouter 결과 품질 검증 및 프롬프트 조정
+- [x] T25 AI 조감도 옵션에 Kakao Roadview 참조/거리/검색 반경 추가
+- [x] T26 별도 숨김 WebView2 Kakao Roadview 캡처 호스트 구현
+- [x] T27 현재 중심 기준 북/동/남/서 Roadview 자동 수집 + 대상 방향 pan 자동 계산
+- [x] T28 항공사진 + Roadview 다중 reference OpenRouter 요청 연결 (모델 최대 reference 수 자동 제한)
+- [ ] T29 Kakao Roadview 실제 캡처/다중 reference/AI 조감도 품질 검증
 
 ## 실제 실행 검증 항목
 
@@ -31,12 +36,13 @@
 - Google 위성: 지도 로드, 주소 검색, zoom, 캡처
 - Naver: 지도 로드, 주소 검색, zoom/center, 위성 지도, 캡처
 - Kakao: 지도 로드, 주소 검색, zoom/center, SkyView, 캡처
+- Kakao Roadview: 중심 기준 4방향 pano 검색, 대상 중심 자동 pan, 숨김 WebView2 캡처, 미존재 방향 건너뛰기
 - OpenRouter AI 향상: 모델 목록 조회, reference 이미지 요청, 결과 비교/저장
-- OpenRouter AI 조감도: 시점/방향/구조 보존/스타일 옵션, 조감 시점 재구성, 결과 비교/저장
-- 공통 MapHost Origin: `https://app.dk-aerialview.local`
+- OpenRouter AI 조감도: 항공사진을 1번 기준 reference로 사용, Roadview는 높이/외벽/지붕 추정용 보조 reference로 사용, 모델 최대 reference 수 자동 제한
+- 공통 MapHost/RoadviewHost Origin: `https://app.dk-aerialview.local`
 
 ## 배포 검증
 
 - `main` 빌드: Restore → Release Build → win-x64 Runtime Restore → self-contained Publish → Artifact Upload
 - 테스트 Artifact: `DK-AerialView-win-x64`
-- Artifact 내부 필수 파일: `DK-AerialView.exe`, `.NET runtime`, `Assets/MapHost/index.html`
+- Artifact 내부 필수 파일: `DK-AerialView.exe`, `.NET runtime`, `Assets/MapHost/index.html`, `Assets/RoadviewHost/index.html`
