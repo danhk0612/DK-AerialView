@@ -33,16 +33,29 @@
                 </ComboBox>
 
                 <TextBlock Text="카메라" FontWeight="SemiBold" FontSize="16" Margin="0,20,0,8"/>
-                <TextBlock x:Name="ZoomLabel" Text="Zoom"/>
-                <Slider x:Name="ZoomSlider" Minimum="3" Maximum="22" Value="18" TickFrequency="0.5" ValueChanged="Camera_ValueChanged"/>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ZoomLabel" Text="Zoom"/>
+                    <TextBlock x:Name="ZoomValueText" Grid.Column="1" Text="18.0" Foreground="#666"/>
+                </Grid>
+                <Slider x:Name="ZoomSlider" Minimum="3" Maximum="22" Value="18" SmallChange="0.1" LargeChange="0.5"
+                        TickFrequency="0.1" IsSnapToTickEnabled="False" ValueChanged="Camera_ValueChanged"/>
 
                 <TextBlock x:Name="RangeLabel" Text="Range (m)" Margin="0,10,0,0" Visibility="Collapsed"/>
-                <Slider x:Name="RangeSlider" Minimum="100" Maximum="5000" Value="900" TickFrequency="100" ValueChanged="Camera_ValueChanged" Visibility="Collapsed"/>
+                <Slider x:Name="RangeSlider" Minimum="100" Maximum="5000" Value="900" SmallChange="25" LargeChange="100"
+                        TickFrequency="100" ValueChanged="Camera_ValueChanged" Visibility="Collapsed"/>
 
                 <TextBlock x:Name="TiltLabel" Text="Tilt" Margin="0,10,0,0"/>
-                <Slider x:Name="TiltSlider" Minimum="0" Maximum="85" Value="60" TickFrequency="5" ValueChanged="Camera_ValueChanged"/>
-                <TextBlock x:Name="HeadingLabel" Text="Heading" Margin="0,10,0,0"/>
-                <Slider x:Name="HeadingSlider" Minimum="0" Maximum="360" Value="315" TickFrequency="15" ValueChanged="Camera_ValueChanged"/>
+                <Slider x:Name="TiltSlider" Minimum="0" Maximum="85" Value="60" SmallChange="1" LargeChange="5"
+                        TickFrequency="5" ValueChanged="Camera_ValueChanged"/>
+
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="HeadingLabel" Text="Heading / 2D 회전"/>
+                    <TextBlock x:Name="HeadingValueText" Grid.Column="1" Text="315°" Foreground="#666"/>
+                </Grid>
+                <Slider x:Name="HeadingSlider" Minimum="0" Maximum="359" Value="315" SmallChange="1" LargeChange="15"
+                        TickFrequency="5" IsSnapToTickEnabled="False" ValueChanged="Camera_ValueChanged"/>
 
                 <TextBlock Text="구도 프리셋" FontWeight="SemiBold" FontSize="16" Margin="0,20,0,8"/>
                 <ComboBox x:Name="CameraPresetBox" Height="32" SelectionChanged="CameraPresetBox_SelectionChanged">
