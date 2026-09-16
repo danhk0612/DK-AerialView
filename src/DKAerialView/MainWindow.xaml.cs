@@ -14,6 +14,7 @@ namespace DKAerialView;
 
 public partial class MainWindow : Window
 {
+    private const string MapHostName = "app.dk-aerialview.local";
     private readonly SettingsService _settingsService = new();
     private readonly OpenRouterImageService _openRouterImageService = new();
     private AppSettings _settings = new();
@@ -32,6 +33,7 @@ public partial class MainWindow : Window
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         _settings = await _settingsService.LoadAsync();
+        SelectConfiguredProvider();
         await InitializeMapAsync();
     }
 
@@ -41,8 +43,12 @@ public partial class MainWindow : Window
         await MapWebView.EnsureCoreWebView2Async();
         MapWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
 
-        var htmlPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MapHost", "index.html");
-        MapWebView.Source = new Uri(htmlPath);
+        var mapHostFolder = Path.Combine(AppContext.BaseDirectory, "Assets", "MapHost");
+        MapWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+            MapHostName,
+            mapHostFolder,
+            CoreWebView2HostResourceAccessKind.Allow);
+        MapWebView.Source = new Uri($"https://{MapHostName}/index.html");
     }
 
     private async void CoreWebView2_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -58,8 +64,12 @@ public partial class MainWindow : Window
                 break;
             case "ready":
                 _webReady = true;
+                ApplyProviderCapabilities(root);
                 UpdateActionButtons();
-                StatusText.Text = "Google 지도 준비됨";
+                var readyProvider = root.TryGetProperty("provider", out var providerNode)
+                    ? providerNode.GetString()
+                    : GetSelectedProvider();
+                StatusText.Text = $"{GetProviderDisplayName(readyProvider)} 지도 준비됨";
                 await SendCameraAsync();
                 await SendFrameAsync();
                 break;
@@ -67,25 +77,41 @@ public partial class MainWindow : Window
                 if (root.TryGetProperty("lat", out var lat)) _latitude = lat.GetDouble();
                 if (root.TryGetProperty("lng", out var lng)) _longitude = lng.GetDouble();
                 _syncingCamera = true;
-                if (root.TryGetProperty("zoom", out var zoom)) ZoomSlider.Value = zoom.GetDouble();
-                if (root.TryGetProperty("tilt", out var tilt)) TiltSlider.Value = tilt.GetDouble();
-                if (root.TryGetProperty("heading", out var heading)) HeadingSlider.Value = heading.GetDouble();
+                if (root.TryGetProperty("zoom", out var zoom)) ZoomSlider.Value = Math.Clamp(zoom.GetDouble(), ZoomSlider.Minimum, ZoomSlider.Maximum);
+                if (root.TryGetProperty("tilt", out var tilt) && TiltSlider.IsEnabled) TiltSlider.Value = tilt.GetDouble();
+                if (root.TryGetProperty("heading", out var heading) && HeadingSlider.IsEnabled) HeadingSlider.Value = heading.GetDouble();
                 _syncingCamera = false;
                 break;
             case "geocodeResult":
+                if (root.TryGetProperty("lat", out var resultLat)) _latitude = resultLat.GetDouble();
+                if (root.TryGetProperty("lng", out var resultLng)) _longitude = resultLng.GetDouble();
                 if (root.TryGetProperty("formattedAddress", out var formatted))
                     StatusText.Text = formatted.GetString() ?? "주소 검색 완료";
                 break;
             case "error":
-                StatusText.Text = root.TryGetProperty("message", out var message) ? message.GetString() ?? "지도 오류" : "지도 오류";
+                _webReady = false;
+                UpdateActionButtons();
+                StatusText.Text = root.TryGetProperty("message", out var message)
+                    ? message.GetString() ?? "지도 오류"
+                    : "지도 오류";
                 break;
         }
     }
 
     private Task SendInitializeAsync()
     {
-        var command = new { type = "initialize", provider = "google", apiKey = _settings.GoogleMapsApiKey };
+        if (MapWebView.CoreWebView2 is null) return Task.CompletedTask;
+        var provider = GetSelectedProvider();
+        var command = new
+        {
+            type = "initialize",
+            provider,
+            googleApiKey = _settings.GoogleMapsApiKey,
+            naverClientId = _settings.NaverClientId,
+            kakaoJavaScriptKey = _settings.KakaoJavaScriptKey
+        };
         MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(command));
+        StatusText.Text = $"{GetProviderDisplayName(provider)} 지도 초기화 중...";
         return Task.CompletedTask;
     }
 
@@ -98,8 +124,8 @@ public partial class MainWindow : Window
             lat = _latitude,
             lng = _longitude,
             zoom = ZoomSlider.Value,
-            tilt = TiltSlider.Value,
-            heading = HeadingSlider.Value
+            tilt = TiltSlider.IsEnabled ? TiltSlider.Value : 0,
+            heading = HeadingSlider.IsEnabled ? HeadingSlider.Value : 0
         };
         MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(command));
         return Task.CompletedTask;
@@ -141,8 +167,10 @@ public partial class MainWindow : Window
         if (values.Length != 3) return;
         _syncingCamera = true;
         ZoomSlider.Value = double.Parse(values[0], System.Globalization.CultureInfo.InvariantCulture);
-        TiltSlider.Value = double.Parse(values[1], System.Globalization.CultureInfo.InvariantCulture);
-        HeadingSlider.Value = double.Parse(values[2], System.Globalization.CultureInfo.InvariantCulture);
+        if (TiltSlider.IsEnabled)
+            TiltSlider.Value = double.Parse(values[1], System.Globalization.CultureInfo.InvariantCulture);
+        if (HeadingSlider.IsEnabled)
+            HeadingSlider.Value = double.Parse(values[2], System.Globalization.CultureInfo.InvariantCulture);
         _syncingCamera = false;
         await SendCameraAsync();
     }
@@ -152,9 +180,14 @@ public partial class MainWindow : Window
         if (IsLoaded) await SendFrameAsync();
     }
 
-    private void ProviderBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void ProviderBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (IsLoaded) StatusText.Text = "현재 1차 버전은 Google Provider만 활성화되어 있습니다.";
+        if (!IsLoaded) return;
+        _webReady = false;
+        SetProviderCapabilities(false, false);
+        UpdateActionButtons();
+        if (MapWebView.CoreWebView2 is not null)
+            await SendInitializeAsync();
     }
 
     private async void Capture_Click(object sender, RoutedEventArgs e)
@@ -292,6 +325,61 @@ public partial class MainWindow : Window
         return output.ToArray();
     }
 
+    private void ApplyProviderCapabilities(JsonElement root)
+    {
+        var tilt = false;
+        var heading = false;
+        if (root.TryGetProperty("capabilities", out var capabilities))
+        {
+            if (capabilities.TryGetProperty("tilt", out var tiltNode)) tilt = tiltNode.GetBoolean();
+            if (capabilities.TryGetProperty("heading", out var headingNode)) heading = headingNode.GetBoolean();
+        }
+        SetProviderCapabilities(tilt, heading);
+    }
+
+    private void SetProviderCapabilities(bool tilt, bool heading)
+    {
+        TiltSlider.IsEnabled = tilt;
+        TiltLabel.IsEnabled = tilt;
+        HeadingSlider.IsEnabled = heading;
+        HeadingLabel.IsEnabled = heading;
+        if (!tilt) TiltSlider.Value = 0;
+        if (!heading) HeadingSlider.Value = 0;
+    }
+
+    private string GetSelectedProvider()
+    {
+        return ProviderBox.SelectedItem is ComboBoxItem item && item.Tag is string tag
+            ? tag
+            : "google";
+    }
+
+    private void SelectConfiguredProvider()
+    {
+        var configured = string.IsNullOrWhiteSpace(_settings.DefaultMapProvider)
+            ? "google"
+            : _settings.DefaultMapProvider.Trim().ToLowerInvariant();
+        foreach (var candidate in ProviderBox.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(candidate.Tag as string, configured, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(candidate.Content?.ToString(), _settings.DefaultMapProvider, StringComparison.OrdinalIgnoreCase))
+            {
+                ProviderBox.SelectedItem = candidate;
+                return;
+            }
+        }
+    }
+
+    private static string GetProviderDisplayName(string? provider)
+    {
+        return provider?.ToLowerInvariant() switch
+        {
+            "naver" => "Naver",
+            "kakao" => "Kakao",
+            _ => "Google"
+        };
+    }
+
     private static string GetAspectRatio(int width, int height)
     {
         var gcd = GreatestCommonDivisor(width, height);
@@ -338,7 +426,7 @@ public partial class MainWindow : Window
             _settings = await _settingsService.LoadAsync();
             _webReady = false;
             UpdateActionButtons();
-            await MapWebView.CoreWebView2.ExecuteScriptAsync("window.location.reload();");
+            await SendInitializeAsync();
         }
     }
 }
