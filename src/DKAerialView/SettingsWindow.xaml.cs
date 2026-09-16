@@ -35,10 +35,13 @@ public partial class SettingsWindow : Window
         {
             LoadModelsButton.IsEnabled = false;
             ModelCapabilityText.Text = "OpenRouter 이미지 모델 목록을 불러오는 중...";
+            var currentModel = OpenRouterModelBox.SelectedItem is OpenRouterImageModel selected
+                ? selected.Id
+                : OpenRouterModelBox.Text.Trim();
+
             var models = await _openRouterImageService.GetEditingModelsAsync(OpenRouterKeyBox.Password.Trim());
             OpenRouterModelBox.ItemsSource = models;
 
-            var currentModel = OpenRouterModelBox.Text.Trim();
             var match = models.FirstOrDefault(model => string.Equals(model.Id, currentModel, StringComparison.OrdinalIgnoreCase));
             if (match is not null)
             {
@@ -47,6 +50,7 @@ public partial class SettingsWindow : Window
             }
             else
             {
+                OpenRouterModelBox.Text = currentModel;
                 ModelCapabilityText.Text = $"편집 가능한 이미지 모델 {models.Count}개를 불러왔습니다. 모델을 선택하세요.";
             }
         }
