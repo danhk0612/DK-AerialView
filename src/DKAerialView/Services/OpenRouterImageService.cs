@@ -83,11 +83,32 @@ public sealed class OpenRouterImageService
         return models.OrderBy(model => model.Name, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    public async Task<byte[]> EnhanceAsync(
+    public Task<byte[]> EnhanceAsync(
         string apiKey,
         string model,
         byte[] sourceImage,
         string prompt,
+        string resolution,
+        string aspectRatio,
+        CancellationToken cancellationToken = default)
+    {
+        return SendImageEditAsync(
+            apiKey,
+            model,
+            new[] { sourceImage },
+            prompt,
+            resolution,
+            aspectRatio,
+            cancellationToken);
+    }
+
+    public async Task<byte[]> GenerateAerialViewAsync(
+        string apiKey,
+        string model,
+        byte[] sourceImage,
+        IReadOnlyList<byte[]> roadviewReferences,
+        string basePrompt,
+        AerialGenerationOptions options,
         string resolution,
         string aspectRatio,
         CancellationToken cancellationToken = default)
@@ -97,19 +118,65 @@ public sealed class OpenRouterImageService
         if (capability is null)
             throw new InvalidOperationException("선택한 모델이 현재 OpenRouter에서 참조 이미지 편집을 지원하지 않습니다. 설정에서 모델 목록을 다시 불러오세요.");
 
-        var dataUrl = $"data:image/png;base64,{Convert.ToBase64String(sourceImage)}";
+        var maxAdditionalReferences = Math.Max(0, capability.MaxInputReferences - 1);
+        var usableRoadviewReferences = roadviewReferences
+            .Where(bytes => bytes is { Length: > 0 })
+            .Take(maxAdditionalReferences)
+            .ToArray();
+
+        var prompt = OpenRouterPromptBuilder.BuildAerialPrompt(basePrompt, options, usableRoadviewReferences.Length);
+        var references = new List<byte[]> { sourceImage };
+        references.AddRange(usableRoadviewReferences);
+
+        return await SendImageEditAsync(
+            apiKey,
+            model,
+            references,
+            prompt,
+            resolution,
+            aspectRatio,
+            cancellationToken,
+            capability);
+    }
+
+    private async Task<byte[]> SendImageEditAsync(
+        string apiKey,
+        string model,
+        IReadOnlyList<byte[]> referenceImages,
+        string prompt,
+        string resolution,
+        string aspectRatio,
+        CancellationToken cancellationToken,
+        OpenRouterImageModel? knownCapability = null)
+    {
+        var capability = knownCapability;
+        if (capability is null)
+        {
+            var availableModels = await GetEditingModelsAsync(apiKey, cancellationToken);
+            capability = availableModels.FirstOrDefault(item => string.Equals(item.Id, model, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (capability is null)
+            throw new InvalidOperationException("선택한 모델이 현재 OpenRouter에서 참조 이미지 편집을 지원하지 않습니다. 설정에서 모델 목록을 다시 불러오세요.");
+
+        var references = referenceImages
+            .Where(bytes => bytes is { Length: > 0 })
+            .Take(Math.Max(1, capability.MaxInputReferences))
+            .Select(bytes => new
+            {
+                type = "image_url",
+                image_url = new { url = $"data:image/png;base64,{Convert.ToBase64String(bytes)}" }
+            })
+            .ToArray();
+
+        if (references.Length == 0)
+            throw new InvalidOperationException("OpenRouter에 전달할 참조 이미지가 없습니다.");
+
         var request = new Dictionary<string, object?>
         {
             ["model"] = model,
             ["prompt"] = prompt,
-            ["input_references"] = new[]
-            {
-                new
-                {
-                    type = "image_url",
-                    image_url = new { url = dataUrl }
-                }
-            }
+            ["input_references"] = references
         };
 
         var selectedResolution = SelectResolution(capability.Resolutions, resolution);
@@ -141,20 +208,6 @@ public sealed class OpenRouterImageService
             throw new InvalidOperationException("OpenRouter 응답에 이미지 데이터가 없습니다.");
 
         return Convert.FromBase64String(base64);
-    }
-
-    public Task<byte[]> GenerateAerialViewAsync(
-        string apiKey,
-        string model,
-        byte[] sourceImage,
-        string basePrompt,
-        AerialGenerationOptions options,
-        string resolution,
-        string aspectRatio,
-        CancellationToken cancellationToken = default)
-    {
-        var prompt = OpenRouterPromptBuilder.BuildAerialPrompt(basePrompt, options);
-        return EnhanceAsync(apiKey, model, sourceImage, prompt, resolution, aspectRatio, cancellationToken);
     }
 
     private static string? SelectResolution(IReadOnlyList<string> supported, string requested)
