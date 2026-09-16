@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="DK AerialView" Width="1320" Height="820" MinWidth="1050" MinHeight="650"
+        Title="DK AerialView" Width="1320" Height="840" MinWidth="1050" MinHeight="670"
         WindowStartupLocation="CenterScreen">
     <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -62,6 +62,7 @@
 
                 <Button x:Name="CaptureButton" Height="38" Margin="0,24,0,0" Content="현재 프레임 캡처" Click="Capture_Click" IsEnabled="False"/>
                 <Button x:Name="EnhanceButton" Height="38" Margin="0,8,0,0" Content="AI 이미지 향상" Click="Enhance_Click" IsEnabled="False"/>
+                <Button x:Name="GenerateAerialButton" Height="38" Margin="0,8,0,0" Content="AI 조감도 생성" Click="GenerateAerial_Click" IsEnabled="False"/>
             </StackPanel>
         </Grid>
 
