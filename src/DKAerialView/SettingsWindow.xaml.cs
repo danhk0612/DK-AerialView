@@ -27,6 +27,7 @@ public partial class SettingsWindow : Window
         OpenRouterKeyBox.Password = _settings.OpenRouterApiKey;
         OpenRouterModelBox.Text = _settings.OpenRouterModel;
         OpenRouterPromptBox.Text = _settings.OpenRouterPrompt;
+        OpenRouterAerialPromptBox.Text = _settings.OpenRouterAerialPrompt;
 
         var provider = string.Equals(_settings.DefaultMapProvider, "Google", StringComparison.OrdinalIgnoreCase)
             ? "google3d"
@@ -88,6 +89,7 @@ public partial class SettingsWindow : Window
             ? model.Id
             : OpenRouterModelBox.Text.Trim();
         _settings.OpenRouterPrompt = OpenRouterPromptBox.Text.Trim();
+        _settings.OpenRouterAerialPrompt = OpenRouterAerialPromptBox.Text.Trim();
         await _settingsService.SaveAsync(_settings);
         DialogResult = true;
     }
