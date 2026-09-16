@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using DKAerialView.Models;
 using DKAerialView.Services;
@@ -14,9 +15,11 @@ namespace DKAerialView;
 public partial class MainWindow : Window
 {
     private readonly SettingsService _settingsService = new();
+    private readonly OpenRouterImageService _openRouterImageService = new();
     private AppSettings _settings = new();
     private bool _webReady;
     private bool _syncingCamera;
+    private bool _processing;
     private double _latitude = 37.5665;
     private double _longitude = 126.9780;
 
@@ -55,7 +58,7 @@ public partial class MainWindow : Window
                 break;
             case "ready":
                 _webReady = true;
-                CaptureButton.IsEnabled = true;
+                UpdateActionButtons();
                 StatusText.Text = "Google 지도 준비됨";
                 await SendCameraAsync();
                 await SendFrameAsync();
@@ -156,7 +159,7 @@ public partial class MainWindow : Window
 
     private async void Capture_Click(object sender, RoutedEventArgs e)
     {
-        if (!_webReady || !TryGetOutputSize(out var targetWidth, out var targetHeight)) return;
+        if (!_webReady || _processing || !TryGetOutputSize(out var targetWidth, out var targetHeight)) return;
 
         var dialog = new SaveFileDialog
         {
@@ -169,42 +172,11 @@ public partial class MainWindow : Window
 
         try
         {
-            CaptureButton.IsEnabled = false;
+            SetProcessing(true);
             StatusText.Text = "현재 프레임 캡처 중...";
-            MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "setFrameVisible", visible = false }));
-            await Task.Delay(80);
-
-            using var stream = new MemoryStream();
-            await MapWebView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
-            stream.Position = 0;
-
-            var decoder = new PngBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-            var source = decoder.Frames[0];
-            var targetRatio = (double)targetWidth / targetHeight;
-            var sourceRatio = (double)source.PixelWidth / source.PixelHeight;
-
-            int cropWidth;
-            int cropHeight;
-            if (sourceRatio > targetRatio)
-            {
-                cropHeight = source.PixelHeight;
-                cropWidth = Math.Max(1, (int)Math.Round(cropHeight * targetRatio));
-            }
-            else
-            {
-                cropWidth = source.PixelWidth;
-                cropHeight = Math.Max(1, (int)Math.Round(cropWidth / targetRatio));
-            }
-
-            var x = Math.Max(0, (source.PixelWidth - cropWidth) / 2);
-            var y = Math.Max(0, (source.PixelHeight - cropHeight) / 2);
-            var cropped = new CroppedBitmap(source, new Int32Rect(x, y, cropWidth, cropHeight));
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(cropped));
-            await using var output = File.Create(dialog.FileName);
-            encoder.Save(output);
-
-            StatusText.Text = $"캡처 저장 완료: {cropWidth} × {cropHeight}";
+            var imageBytes = await CaptureFrameAsync(targetWidth, targetHeight);
+            await File.WriteAllBytesAsync(dialog.FileName, imageBytes);
+            StatusText.Text = $"캡처 저장 완료: {targetWidth} × {targetHeight}";
         }
         catch (Exception ex)
         {
@@ -212,9 +184,129 @@ public partial class MainWindow : Window
         }
         finally
         {
-            MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "setFrameVisible", visible = true }));
-            CaptureButton.IsEnabled = _webReady;
+            SetProcessing(false);
         }
+    }
+
+    private async void Enhance_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_webReady || _processing || !TryGetOutputSize(out var targetWidth, out var targetHeight)) return;
+        if (string.IsNullOrWhiteSpace(_settings.OpenRouterApiKey))
+        {
+            StatusText.Text = "설정에서 OpenRouter API Key를 입력하세요.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_settings.OpenRouterModel))
+        {
+            StatusText.Text = "설정에서 OpenRouter 이미지 모델을 지정하세요.";
+            return;
+        }
+
+        try
+        {
+            SetProcessing(true);
+            StatusText.Text = "AI용 원본 프레임 캡처 중...";
+            var sourceBytes = await CaptureFrameAsync(targetWidth, targetHeight);
+
+            var resolution = Math.Max(targetWidth, targetHeight) >= 3000 ? "4K" : "2K";
+            var aspectRatio = GetAspectRatio(targetWidth, targetHeight);
+            StatusText.Text = $"OpenRouter 이미지 향상 요청 중... ({resolution}, {aspectRatio})";
+
+            var resultBytes = await _openRouterImageService.EnhanceAsync(
+                _settings.OpenRouterApiKey,
+                _settings.OpenRouterModel,
+                sourceBytes,
+                _settings.OpenRouterPrompt,
+                resolution,
+                aspectRatio);
+
+            var normalizedResult = NormalizeImageToPng(resultBytes, targetWidth, targetHeight);
+            StatusText.Text = $"AI 이미지 향상 완료: {targetWidth} × {targetHeight}";
+
+            var resultWindow = new ResultWindow(sourceBytes, normalizedResult) { Owner = this };
+            resultWindow.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"AI 이미지 향상 실패: {ex.Message}";
+        }
+        finally
+        {
+            SetProcessing(false);
+        }
+    }
+
+    private async Task<byte[]> CaptureFrameAsync(int targetWidth, int targetHeight)
+    {
+        MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "setFrameVisible", visible = false }));
+        try
+        {
+            await Task.Delay(80);
+            using var stream = new MemoryStream();
+            await MapWebView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
+            return NormalizeImageToPng(stream.ToArray(), targetWidth, targetHeight);
+        }
+        finally
+        {
+            MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "setFrameVisible", visible = true }));
+        }
+    }
+
+    private static byte[] NormalizeImageToPng(byte[] sourceBytes, int targetWidth, int targetHeight)
+    {
+        using var input = new MemoryStream(sourceBytes);
+        var decoder = BitmapDecoder.Create(input, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+        BitmapSource source = decoder.Frames[0];
+
+        var targetRatio = (double)targetWidth / targetHeight;
+        var sourceRatio = (double)source.PixelWidth / source.PixelHeight;
+        int cropWidth;
+        int cropHeight;
+
+        if (sourceRatio > targetRatio)
+        {
+            cropHeight = source.PixelHeight;
+            cropWidth = Math.Max(1, (int)Math.Round(cropHeight * targetRatio));
+        }
+        else
+        {
+            cropWidth = source.PixelWidth;
+            cropHeight = Math.Max(1, (int)Math.Round(cropWidth / targetRatio));
+        }
+
+        var x = Math.Max(0, (source.PixelWidth - cropWidth) / 2);
+        var y = Math.Max(0, (source.PixelHeight - cropHeight) / 2);
+        source = new CroppedBitmap(source, new Int32Rect(x, y, cropWidth, cropHeight));
+
+        if (source.PixelWidth != targetWidth || source.PixelHeight != targetHeight)
+        {
+            source = new TransformedBitmap(source, new ScaleTransform(
+                (double)targetWidth / source.PixelWidth,
+                (double)targetHeight / source.PixelHeight));
+        }
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(source));
+        using var output = new MemoryStream();
+        encoder.Save(output);
+        return output.ToArray();
+    }
+
+    private static string GetAspectRatio(int width, int height)
+    {
+        var gcd = GreatestCommonDivisor(width, height);
+        return $"{width / gcd}:{height / gcd}";
+    }
+
+    private static int GreatestCommonDivisor(int a, int b)
+    {
+        while (b != 0)
+        {
+            var remainder = a % b;
+            a = b;
+            b = remainder;
+        }
+        return Math.Abs(a);
     }
 
     private bool TryGetOutputSize(out int width, out int height)
@@ -226,6 +318,18 @@ public partial class MainWindow : Window
         return values.Length == 2 && int.TryParse(values[0], out width) && int.TryParse(values[1], out height);
     }
 
+    private void SetProcessing(bool processing)
+    {
+        _processing = processing;
+        UpdateActionButtons();
+    }
+
+    private void UpdateActionButtons()
+    {
+        CaptureButton.IsEnabled = _webReady && !_processing;
+        EnhanceButton.IsEnabled = _webReady && !_processing;
+    }
+
     private async void Settings_Click(object sender, RoutedEventArgs e)
     {
         var window = new SettingsWindow(_settingsService) { Owner = this };
@@ -233,7 +337,7 @@ public partial class MainWindow : Window
         {
             _settings = await _settingsService.LoadAsync();
             _webReady = false;
-            CaptureButton.IsEnabled = false;
+            UpdateActionButtons();
             await MapWebView.CoreWebView2.ExecuteScriptAsync("window.location.reload();");
         }
     }
