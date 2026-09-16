@@ -27,6 +27,8 @@ public partial class SettingsWindow : Window
         OpenRouterKeyBox.Password = _settings.OpenRouterApiKey;
         OpenRouterModelBox.Text = _settings.OpenRouterModel;
         OpenRouterPromptBox.Text = _settings.OpenRouterPrompt;
+        SelectByTag(DefaultProviderBox, _settings.DefaultMapProvider, "Google");
+        SelectByTag(DefaultOutputBox, _settings.DefaultOutputPreset, "1920x1080");
     }
 
     private async void LoadModels_Click(object sender, RoutedEventArgs e)
@@ -75,6 +77,8 @@ public partial class SettingsWindow : Window
         _settings.GoogleMapsApiKey = GoogleKeyBox.Password.Trim();
         _settings.NaverClientId = NaverKeyBox.Text.Trim();
         _settings.KakaoJavaScriptKey = KakaoKeyBox.Password.Trim();
+        _settings.DefaultMapProvider = GetSelectedTag(DefaultProviderBox, "Google");
+        _settings.DefaultOutputPreset = GetSelectedTag(DefaultOutputBox, "1920x1080");
         _settings.OpenRouterApiKey = OpenRouterKeyBox.Password.Trim();
         _settings.OpenRouterModel = OpenRouterModelBox.SelectedItem is OpenRouterImageModel model
             ? model.Id
@@ -82,5 +86,20 @@ public partial class SettingsWindow : Window
         _settings.OpenRouterPrompt = OpenRouterPromptBox.Text.Trim();
         await _settingsService.SaveAsync(_settings);
         DialogResult = true;
+    }
+
+    private static void SelectByTag(ComboBox comboBox, string? value, string fallback)
+    {
+        var target = string.IsNullOrWhiteSpace(value) ? fallback : value;
+        var match = comboBox.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), target, StringComparison.OrdinalIgnoreCase));
+        comboBox.SelectedItem = match ?? comboBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
+    }
+
+    private static string GetSelectedTag(ComboBox comboBox, string fallback)
+    {
+        return comboBox.SelectedItem is ComboBoxItem item && item.Tag is not null
+            ? item.Tag.ToString() ?? fallback
+            : fallback;
     }
 }
