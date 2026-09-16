@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     html, body, #map { width:100%; height:100%; margin:0; overflow:hidden; background:#eceff1; }
+    #map > gmp-map-3d { width:100%; height:100%; display:block; }
     #message { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font:14px sans-serif; color:#555; pointer-events:none; z-index:20; text-align:center; padding:24px; box-sizing:border-box; }
     #frame {
       position:absolute;
@@ -29,6 +30,8 @@
     let suppressCameraMessage = false;
     let frameWidth = 16;
     let frameHeight = 9;
+    let googleSdkLoading = false;
+    let googleSdkWaiters = [];
 
     const post = payload => window.chrome.webview.postMessage(payload);
     const message = text => document.getElementById('message').textContent = text || '';
@@ -38,7 +41,7 @@
     window.gm_authFailure = () => {
       const detail = `Google Maps 인증 실패. Maps JavaScript API 활성화, Billing 연결, API Key의 HTTP referrer 허용에 ${currentOrigin()} 를 등록했는지 확인하세요.`;
       message(detail);
-      post({ type:'error', message:detail, provider:'google', origin:currentOrigin(), reason:'auth' });
+      post({ type:'error', message:detail, provider, origin:currentOrigin(), reason:'auth' });
     };
 
     function resetMapHost() {
@@ -53,7 +56,7 @@
       let detail = `지도 SDK를 불러오지 못했습니다. (${provider})`;
       if (provider === 'kakao') {
         detail = `Kakao 지도 SDK를 불러오지 못했습니다. Kakao Developers의 JavaScript SDK 도메인에 ${currentOrigin()} 를 등록하고 JavaScript Key를 확인하세요.`;
-      } else if (provider === 'google') {
+      } else if (provider === 'google' || provider === 'google3d') {
         detail = `Google Maps SDK를 불러오지 못했습니다. 네트워크 상태와 API Key, Maps JavaScript API 활성화 여부를 확인하세요.`;
       }
       message(detail);
@@ -73,6 +76,26 @@
       document.head.appendChild(script);
     }
 
+    function ensureGoogleSdk(apiKey, callback) {
+      if (window.google?.maps?.importLibrary) {
+        callback();
+        return;
+      }
+
+      googleSdkWaiters.push(callback);
+      if (googleSdkLoading) return;
+      googleSdkLoading = true;
+
+      window.__dkGoogleReady = () => {
+        googleSdkLoading = false;
+        const waiters = googleSdkWaiters.splice(0);
+        waiters.forEach(fn => fn());
+      };
+
+      const src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&callback=__dkGoogleReady&v=weekly&language=ko&region=KR&auth_referrer_policy=origin`;
+      loadScript('google-maps-script', src);
+    }
+
     function finishReady(capabilities) {
       message('');
       resizeFrame();
@@ -81,26 +104,67 @@
       emitCamera();
     }
 
+    function loadGoogle3D(apiKey) {
+      if (!apiKey) return missingKey('Google Maps API Key');
+      ensureGoogleSdk(apiKey, async () => {
+        try {
+          const [{ Map3DElement, MapMode }, { Geocoder }] = await Promise.all([
+            google.maps.importLibrary('maps3d'),
+            google.maps.importLibrary('geocoding')
+          ]);
+
+          map = new Map3DElement({
+            center: { lat:37.5665, lng:126.9780, altitude:0 },
+            range:900,
+            tilt:60,
+            heading:315,
+            mode:MapMode.SATELLITE,
+            defaultUIHidden:false
+          });
+          mapNode().appendChild(map);
+          geocoder = new Geocoder();
+
+          ['gmp-centerchange','gmp-rangechange','gmp-tiltchange','gmp-headingchange'].forEach(name => map.addEventListener(name, emitCamera));
+          map.addEventListener('gmp-error', () => {
+            const detail = 'Google 3D 지도 초기화에 실패했습니다. Maps JavaScript API의 3D Maps 사용 가능 여부와 하드웨어 가속을 확인하세요.';
+            message(detail);
+            post({ type:'error', message:detail, provider:'google3d', reason:'3d-map-error' });
+          });
+
+          finishReady({ zoom:false, range:true, tilt:true, heading:true, geocode:true, satellite:true, threeD:true });
+        } catch (error) {
+          const detail = `Google 3D 초기화 실패: ${error?.message || error}`;
+          message(detail);
+          post({ type:'error', message:detail, provider:'google3d', reason:'3d-init' });
+        }
+      });
+    }
+
     function loadGoogle(apiKey) {
       if (!apiKey) return missingKey('Google Maps API Key');
-      window.__initGoogleMap = () => {
-        map = new google.maps.Map(mapNode(), {
-          center: { lat:37.5665, lng:126.9780 },
-          zoom:18,
-          tilt:45,
-          heading:315,
-          mapTypeId:'satellite',
-          mapId:'DEMO_MAP_ID',
-          streetViewControl:false,
-          mapTypeControl:true,
-          fullscreenControl:false
-        });
-        geocoder = new google.maps.Geocoder();
-        ['center_changed','zoom_changed','heading_changed','tilt_changed'].forEach(name => map.addListener(name, emitCamera));
-        finishReady({ tilt:true, heading:true, geocode:true, satellite:true });
-      };
-      const src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&callback=__initGoogleMap&v=weekly&language=ko&region=KR&auth_referrer_policy=origin`;
-      loadScript('google-maps-script', src);
+      ensureGoogleSdk(apiKey, async () => {
+        try {
+          const [{ Map }, { Geocoder }] = await Promise.all([
+            google.maps.importLibrary('maps'),
+            google.maps.importLibrary('geocoding')
+          ]);
+          map = new Map(mapNode(), {
+            center:{ lat:37.5665, lng:126.9780 },
+            zoom:18,
+            mapTypeId:'satellite',
+            streetViewControl:false,
+            mapTypeControl:true,
+            fullscreenControl:false
+          });
+          geocoder = new Geocoder();
+          ['center_changed','zoom_changed'].forEach(name => map.addListener(name, emitCamera));
+          finishReady({ zoom:true, range:false, tilt:false, heading:false, geocode:true, satellite:true, threeD:false });
+        } catch (error) {
+          const detail = `Google 위성지도 초기화 실패: ${error?.message || error}`;
+          message(detail);
+          post({ type:'error', message:detail, provider:'google', reason:'map-init' });
+        }
+      });
     }
 
     function loadNaver(clientId) {
@@ -121,7 +185,7 @@
               mapTypeControl:true
             });
             ['center_changed','zoom_changed'].forEach(name => naver.maps.Event.addListener(map, name, emitCamera));
-            finishReady({ tilt:false, heading:false, geocode:true, satellite:true });
+            finishReady({ zoom:true, range:false, tilt:false, heading:false, geocode:true, satellite:true, threeD:false });
           };
           if (naver.maps.jsContentLoaded) create();
           else naver.maps.onJSContentLoaded = create;
@@ -151,7 +215,7 @@
               geocoder = new kakao.maps.services.Geocoder();
               kakao.maps.event.addListener(map, 'center_changed', emitCamera);
               kakao.maps.event.addListener(map, 'zoom_changed', emitCamera);
-              finishReady({ tilt:false, heading:false, geocode:true, satellite:true });
+              finishReady({ zoom:true, range:false, tilt:false, heading:false, geocode:true, satellite:true, threeD:false });
             } catch (error) {
               const detail = `Kakao 지도 초기화 실패: ${error?.message || error}`;
               message(detail);
@@ -168,10 +232,11 @@
     }
 
     function initialize(cmd) {
-      provider = (cmd.provider || 'google').toLowerCase();
+      provider = (cmd.provider || 'google3d').toLowerCase();
       resetMapHost();
       post({ type:'diagnostic', provider, origin:currentOrigin(), message:`${provider} 초기화 시작 (${currentOrigin()})` });
-      if (provider === 'google') loadGoogle(cmd.googleApiKey || cmd.apiKey);
+      if (provider === 'google3d') loadGoogle3D(cmd.googleApiKey || cmd.apiKey);
+      else if (provider === 'google') loadGoogle(cmd.googleApiKey || cmd.apiKey);
       else if (provider === 'naver') loadNaver(cmd.naverClientId);
       else if (provider === 'kakao') loadKakao(cmd.kakaoJavaScriptKey);
       else post({ type:'error', message:`지원하지 않는 지도 Provider입니다: ${provider}` });
@@ -179,10 +244,21 @@
 
     function emitCamera() {
       if (!map || suppressCameraMessage) return;
-      if (provider === 'google') {
+      if (provider === 'google3d') {
+        const center = map.center;
+        if (!center) return;
+        post({
+          type:'cameraChanged',
+          lat:Number(center.lat),
+          lng:Number(center.lng),
+          range:Number(map.range ?? 900),
+          tilt:Number(map.tilt ?? 0),
+          heading:Number(map.heading ?? 0)
+        });
+      } else if (provider === 'google') {
         const center = map.getCenter();
         if (!center) return;
-        post({ type:'cameraChanged', lat:center.lat(), lng:center.lng(), zoom:map.getZoom() ?? 18, tilt:map.getTilt() ?? 0, heading:map.getHeading() ?? 0 });
+        post({ type:'cameraChanged', lat:center.lat(), lng:center.lng(), zoom:map.getZoom() ?? 18, tilt:0, heading:0 });
       } else if (provider === 'naver') {
         const center = map.getCenter();
         post({ type:'cameraChanged', lat:center.lat(), lng:center.lng(), zoom:map.getZoom(), tilt:0, heading:0 });
@@ -195,8 +271,14 @@
     function setCamera(cmd) {
       if (!map) return;
       suppressCameraMessage = true;
-      if (provider === 'google') {
-        map.moveCamera({ center:{ lat:cmd.lat, lng:cmd.lng }, zoom:cmd.zoom, tilt:cmd.tilt, heading:cmd.heading });
+      if (provider === 'google3d') {
+        map.center = { lat:cmd.lat, lng:cmd.lng, altitude:0 };
+        map.range = Math.max(50, Number(cmd.range || 900));
+        map.tilt = Math.max(0, Math.min(85, Number(cmd.tilt || 0)));
+        map.heading = Number(cmd.heading || 0);
+      } else if (provider === 'google') {
+        map.setCenter({ lat:cmd.lat, lng:cmd.lng });
+        map.setZoom(cmd.zoom);
       } else if (provider === 'naver') {
         map.setCenter(new naver.maps.LatLng(cmd.lat, cmd.lng));
         map.setZoom(Math.max(1, Math.min(21, Math.round(cmd.zoom))));
@@ -204,20 +286,23 @@
         map.setCenter(new kakao.maps.LatLng(cmd.lat, cmd.lng));
         map.setLevel(Math.max(1, Math.min(14, Math.round(22-cmd.zoom))));
       }
-      setTimeout(() => { suppressCameraMessage = false; emitCamera(); }, 80);
+      setTimeout(() => { suppressCameraMessage = false; emitCamera(); }, 100);
     }
 
     async function searchAddress(address) {
-      if (!map) return;
-      if (provider === 'google') {
-        if (!geocoder) return;
+      if (!map || !geocoder) return;
+
+      if (provider === 'google3d' || provider === 'google') {
         try {
           const response = await geocoder.geocode({ address });
           const result = response.results && response.results[0];
           if (!result) throw new Error('검색 결과가 없습니다.');
           const location = result.geometry.location;
-          map.setCenter(location);
-          post({ type:'geocodeResult', lat:location.lat(), lng:location.lng(), formattedAddress:result.formatted_address });
+          const lat = location.lat();
+          const lng = location.lng();
+          if (provider === 'google3d') map.center = { lat, lng, altitude:0 };
+          else map.setCenter(location);
+          post({ type:'geocodeResult', lat, lng, formattedAddress:result.formatted_address });
         } catch (error) {
           post({ type:'error', message:`주소 검색 실패: ${error.message || error}` });
         }
@@ -234,7 +319,6 @@
           post({ type:'geocodeResult', lat, lng, formattedAddress:item.roadAddress || item.jibunAddress || address });
         });
       } else if (provider === 'kakao') {
-        if (!geocoder) return;
         geocoder.addressSearch(address, (result, status) => {
           if (status !== kakao.maps.services.Status.OK || !result || !result.length) {
             post({ type:'error', message:'주소 검색 실패 또는 검색 결과가 없습니다.' });
