@@ -11,7 +11,8 @@ public sealed record OpenRouterImageModel(
     string Name,
     int MaxInputReferences,
     IReadOnlyList<string> Resolutions,
-    IReadOnlyList<string> AspectRatios)
+    IReadOnlyList<string> AspectRatios,
+    IReadOnlyList<string> OutputFormats)
 {
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? Id : $"{Name}  ({Id})";
     public string CapabilitySummary
@@ -71,7 +72,11 @@ public sealed class OpenRouterImageService
 
             var resolutions = ReadEnumValues(supportedParameters, "resolution");
             var aspectRatios = ReadEnumValues(supportedParameters, "aspect_ratio");
-            models.Add(new OpenRouterImageModel(id, name, maxInputReferences, resolutions, aspectRatios));
+            var outputFormats = ReadEnumValues(supportedParameters, "output_format");
+            if (outputFormats.Count == 1 && string.Equals(outputFormats[0], "svg", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            models.Add(new OpenRouterImageModel(id, name, maxInputReferences, resolutions, aspectRatios, outputFormats));
         }
 
         return models.OrderBy(model => model.Name, StringComparer.OrdinalIgnoreCase).ToArray();
@@ -86,15 +91,17 @@ public sealed class OpenRouterImageService
         string aspectRatio,
         CancellationToken cancellationToken = default)
     {
+        var availableModels = await GetEditingModelsAsync(apiKey, cancellationToken);
+        var capability = availableModels.FirstOrDefault(item => string.Equals(item.Id, model, StringComparison.OrdinalIgnoreCase));
+        if (capability is null)
+            throw new InvalidOperationException("선택한 모델이 현재 OpenRouter에서 참조 이미지 편집을 지원하지 않습니다. 설정에서 모델 목록을 다시 불러오세요.");
+
         var dataUrl = $"data:image/png;base64,{Convert.ToBase64String(sourceImage)}";
-        var request = new
+        var request = new Dictionary<string, object?>
         {
-            model,
-            prompt,
-            resolution,
-            aspect_ratio = aspectRatio,
-            output_format = "png",
-            input_references = new[]
+            ["model"] = model,
+            ["prompt"] = prompt,
+            ["input_references"] = new[]
             {
                 new
                 {
@@ -103,6 +110,18 @@ public sealed class OpenRouterImageService
                 }
             }
         };
+
+        var selectedResolution = SelectResolution(capability.Resolutions, resolution);
+        if (selectedResolution is not null)
+            request["resolution"] = selectedResolution;
+
+        if (capability.AspectRatios.Contains(aspectRatio, StringComparer.OrdinalIgnoreCase))
+            request["aspect_ratio"] = aspectRatio;
+        else if (capability.AspectRatios.Contains("auto", StringComparer.OrdinalIgnoreCase))
+            request["aspect_ratio"] = "auto";
+
+        if (capability.OutputFormats.Contains("png", StringComparer.OrdinalIgnoreCase))
+            request["output_format"] = "png";
 
         using var message = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/images")
         {
@@ -122,6 +141,30 @@ public sealed class OpenRouterImageService
 
         return Convert.FromBase64String(base64);
     }
+
+    private static string? SelectResolution(IReadOnlyList<string> supported, string requested)
+    {
+        if (supported.Count == 0) return null;
+        var exact = supported.FirstOrDefault(value => string.Equals(value, requested, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null) return exact;
+
+        var requestedRank = ResolutionRank(requested);
+        return supported
+            .Select(value => new { Value = value, Rank = ResolutionRank(value) })
+            .Where(item => item.Rank > 0 && item.Rank <= requestedRank)
+            .OrderByDescending(item => item.Rank)
+            .Select(item => item.Value)
+            .FirstOrDefault() ?? supported[0];
+    }
+
+    private static int ResolutionRank(string value) => value.ToUpperInvariant() switch
+    {
+        "512" => 1,
+        "1K" => 2,
+        "2K" => 3,
+        "4K" => 4,
+        _ => 0
+    };
 
     private static IReadOnlyList<string> ReadEnumValues(JsonElement supportedParameters, string parameterName)
     {
