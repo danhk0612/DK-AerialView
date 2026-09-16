@@ -24,6 +24,7 @@ public partial class SettingsWindow : Window
         KakaoKeyBox.Password = _settings.KakaoJavaScriptKey;
         OpenRouterKeyBox.Password = _settings.OpenRouterApiKey;
         OpenRouterModelBox.Text = _settings.OpenRouterModel;
+        OpenRouterPromptBox.Text = _settings.OpenRouterPrompt;
     }
 
     private async void Save_Click(object sender, RoutedEventArgs e)
@@ -33,6 +34,7 @@ public partial class SettingsWindow : Window
         _settings.KakaoJavaScriptKey = KakaoKeyBox.Password.Trim();
         _settings.OpenRouterApiKey = OpenRouterKeyBox.Password.Trim();
         _settings.OpenRouterModel = OpenRouterModelBox.Text.Trim();
+        _settings.OpenRouterPrompt = OpenRouterPromptBox.Text.Trim();
         await _settingsService.SaveAsync(_settings);
         DialogResult = true;
     }
