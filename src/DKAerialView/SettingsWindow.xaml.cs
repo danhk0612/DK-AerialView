@@ -27,7 +27,11 @@ public partial class SettingsWindow : Window
         OpenRouterKeyBox.Password = _settings.OpenRouterApiKey;
         OpenRouterModelBox.Text = _settings.OpenRouterModel;
         OpenRouterPromptBox.Text = _settings.OpenRouterPrompt;
-        SelectByTag(DefaultProviderBox, _settings.DefaultMapProvider, "Google");
+
+        var provider = string.Equals(_settings.DefaultMapProvider, "Google", StringComparison.OrdinalIgnoreCase)
+            ? "google3d"
+            : _settings.DefaultMapProvider;
+        SelectByTag(DefaultProviderBox, provider, "google3d");
         SelectByTag(DefaultOutputBox, _settings.DefaultOutputPreset, "1920x1080");
     }
 
@@ -77,7 +81,7 @@ public partial class SettingsWindow : Window
         _settings.GoogleMapsApiKey = GoogleKeyBox.Password.Trim();
         _settings.NaverClientId = NaverKeyBox.Text.Trim();
         _settings.KakaoJavaScriptKey = KakaoKeyBox.Password.Trim();
-        _settings.DefaultMapProvider = GetSelectedTag(DefaultProviderBox, "Google");
+        _settings.DefaultMapProvider = GetSelectedTag(DefaultProviderBox, "google3d");
         _settings.DefaultOutputPreset = GetSelectedTag(DefaultOutputBox, "1920x1080");
         _settings.OpenRouterApiKey = OpenRouterKeyBox.Password.Trim();
         _settings.OpenRouterModel = OpenRouterModelBox.SelectedItem is OpenRouterImageModel model
