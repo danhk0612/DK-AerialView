@@ -47,4 +47,5 @@ public sealed class AerialGenerationOptions
     public int RoadviewSearchRadiusMeters { get; init; } = 100;
     public int RoadviewTilt { get; init; } = 0;
     public int RoadviewZoom { get; init; } = 0;
+    public IReadOnlyList<byte[]> RoadviewReferences { get; set; } = Array.Empty<byte[]>();
 }
