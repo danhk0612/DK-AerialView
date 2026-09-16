@@ -21,9 +21,10 @@
 
         <TextBlock Grid.Row="3" Text="기본 지도" VerticalAlignment="Center"/>
         <ComboBox x:Name="DefaultProviderBox" Grid.Row="3" Grid.Column="1" Height="30" Margin="8">
-            <ComboBoxItem Content="Google" Tag="Google"/>
-            <ComboBoxItem Content="Naver" Tag="Naver"/>
-            <ComboBoxItem Content="Kakao" Tag="Kakao"/>
+            <ComboBoxItem Content="Google 3D 조감도" Tag="google3d"/>
+            <ComboBoxItem Content="Google 위성" Tag="google"/>
+            <ComboBoxItem Content="Naver 항공" Tag="naver"/>
+            <ComboBoxItem Content="Kakao SkyView" Tag="kakao"/>
         </ComboBox>
         <TextBlock Grid.Row="4" Text="기본 출력 크기" VerticalAlignment="Center"/>
         <ComboBox x:Name="DefaultOutputBox" Grid.Row="4" Grid.Column="1" Height="30" Margin="8">
@@ -56,7 +57,7 @@
                  AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
 
         <TextBlock Grid.Row="9" Grid.ColumnSpan="2" Margin="8" Foreground="#666" TextWrapping="Wrap"
-                   Text="Naver/Kakao 콘솔의 Web Service URL 또는 JavaScript SDK 도메인에는 https://app.dk-aerialview.local 을 등록하세요. 지도/API 키는 로컬 설정 파일에만 저장됩니다."/>
+                   Text="Naver/Kakao 콘솔의 Web Service URL 또는 JavaScript SDK 도메인에는 https://app.dk-aerialview.local 을 등록하세요. Google 3D는 Maps JavaScript API와 하드웨어 가속이 필요합니다. 지도/API 키는 로컬 설정 파일에만 저장됩니다."/>
 
         <TextBlock Grid.Row="10" Grid.ColumnSpan="2" Margin="8" Foreground="#666" TextWrapping="Wrap"
                    Text="AI 향상에는 image input과 input_references를 지원하는 OpenRouter 모델만 목록에 표시합니다."/>
