@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     html, body, #map { width:100%; height:100%; margin:0; overflow:hidden; background:#eceff1; }
-    #message { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font:14px sans-serif; color:#555; pointer-events:none; z-index:20; }
+    #message { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font:14px sans-serif; color:#555; pointer-events:none; z-index:20; text-align:center; padding:24px; box-sizing:border-box; }
     #frame {
       position:absolute;
       left:50%; top:50%;
@@ -33,6 +33,13 @@
     const post = payload => window.chrome.webview.postMessage(payload);
     const message = text => document.getElementById('message').textContent = text || '';
     const mapNode = () => document.getElementById('map');
+    const currentOrigin = () => window.location.origin;
+
+    window.gm_authFailure = () => {
+      const detail = `Google Maps 인증 실패. Maps JavaScript API 활성화, Billing 연결, API Key의 HTTP referrer 허용에 ${currentOrigin()} 를 등록했는지 확인하세요.`;
+      message(detail);
+      post({ type:'error', message:detail, provider:'google', origin:currentOrigin(), reason:'auth' });
+    };
 
     function resetMapHost() {
       map = null;
@@ -40,6 +47,17 @@
       mapNode().innerHTML = '';
       document.getElementById('frame').style.display = 'none';
       message('지도 초기화 중...');
+    }
+
+    function sdkLoadError() {
+      let detail = `지도 SDK를 불러오지 못했습니다. (${provider})`;
+      if (provider === 'kakao') {
+        detail = `Kakao 지도 SDK를 불러오지 못했습니다. Kakao Developers의 JavaScript SDK 도메인에 ${currentOrigin()} 를 등록하고 JavaScript Key를 확인하세요.`;
+      } else if (provider === 'google') {
+        detail = `Google Maps SDK를 불러오지 못했습니다. 네트워크 상태와 API Key, Maps JavaScript API 활성화 여부를 확인하세요.`;
+      }
+      message(detail);
+      post({ type:'error', message:detail, provider, origin:currentOrigin(), reason:'sdk-load' });
     }
 
     function loadScript(id, src, onload) {
@@ -51,7 +69,7 @@
       script.defer = true;
       script.src = src;
       script.onload = onload || null;
-      script.onerror = () => post({ type:'error', message:`지도 SDK를 불러오지 못했습니다. (${provider})` });
+      script.onerror = sdkLoadError;
       document.head.appendChild(script);
     }
 
@@ -59,7 +77,7 @@
       message('');
       resizeFrame();
       document.getElementById('frame').style.display = 'block';
-      post({ type:'ready', provider, capabilities });
+      post({ type:'ready', provider, capabilities, origin:currentOrigin() });
       emitCamera();
     }
 
@@ -81,7 +99,8 @@
         ['center_changed','zoom_changed','heading_changed','tilt_changed'].forEach(name => map.addListener(name, emitCamera));
         finishReady({ tilt:true, heading:true, geocode:true, satellite:true });
       };
-      loadScript('google-maps-script', `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&callback=__initGoogleMap&v=weekly`);
+      const src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&callback=__initGoogleMap&v=weekly&language=ko&region=KR&auth_referrer_policy=origin`;
+      loadScript('google-maps-script', src);
     }
 
     function loadNaver(clientId) {
@@ -117,19 +136,27 @@
         `https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&appkey=${encodeURIComponent(appKey)}&libraries=services`,
         () => {
           if (!window.kakao || !kakao.maps) {
-            post({ type:'error', message:'Kakao Maps SDK 초기화에 실패했습니다.' });
+            const detail = `Kakao Maps SDK 초기화에 실패했습니다. JavaScript SDK 도메인 ${currentOrigin()} 및 JavaScript Key를 확인하세요.`;
+            message(detail);
+            post({ type:'error', message:detail, provider:'kakao', origin:currentOrigin(), reason:'sdk-init' });
             return;
           }
           kakao.maps.load(() => {
-            map = new kakao.maps.Map(mapNode(), {
-              center:new kakao.maps.LatLng(37.5665,126.9780),
-              level:4
-            });
-            map.setMapTypeId(kakao.maps.MapTypeId.SKYVIEW);
-            geocoder = new kakao.maps.services.Geocoder();
-            kakao.maps.event.addListener(map, 'center_changed', emitCamera);
-            kakao.maps.event.addListener(map, 'zoom_changed', emitCamera);
-            finishReady({ tilt:false, heading:false, geocode:true, satellite:true });
+            try {
+              map = new kakao.maps.Map(mapNode(), {
+                center:new kakao.maps.LatLng(37.5665,126.9780),
+                level:4
+              });
+              map.setMapTypeId(kakao.maps.MapTypeId.SKYVIEW);
+              geocoder = new kakao.maps.services.Geocoder();
+              kakao.maps.event.addListener(map, 'center_changed', emitCamera);
+              kakao.maps.event.addListener(map, 'zoom_changed', emitCamera);
+              finishReady({ tilt:false, heading:false, geocode:true, satellite:true });
+            } catch (error) {
+              const detail = `Kakao 지도 초기화 실패: ${error?.message || error}`;
+              message(detail);
+              post({ type:'error', message:detail, provider:'kakao', origin:currentOrigin(), reason:'map-init' });
+            }
           });
         }
       );
@@ -143,6 +170,7 @@
     function initialize(cmd) {
       provider = (cmd.provider || 'google').toLowerCase();
       resetMapHost();
+      post({ type:'diagnostic', provider, origin:currentOrigin(), message:`${provider} 초기화 시작 (${currentOrigin()})` });
       if (provider === 'google') loadGoogle(cmd.googleApiKey || cmd.apiKey);
       else if (provider === 'naver') loadNaver(cmd.naverClientId);
       else if (provider === 'kakao') loadKakao(cmd.kakaoJavaScriptKey);
@@ -247,6 +275,11 @@
     }
 
     window.addEventListener('resize', resizeFrame);
+    window.addEventListener('error', event => {
+      if (!event?.message) return;
+      post({ type:'diagnostic', provider, origin:currentOrigin(), message:`JavaScript 오류: ${event.message}` });
+    });
+
     window.chrome.webview.addEventListener('message', event => {
       const cmd = event.data;
       if (!cmd || !cmd.type) return;
@@ -257,7 +290,7 @@
       else if (cmd.type === 'setFrameVisible') document.getElementById('frame').style.display = cmd.visible ? 'block' : 'none';
     });
 
-    post({ type:'hostReady' });
+    post({ type:'hostReady', origin:currentOrigin() });
   </script>
 </body>
 </html>
