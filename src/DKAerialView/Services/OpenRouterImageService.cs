@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace DKAerialView.Services;
@@ -48,13 +49,37 @@ public sealed class OpenRouterImageService
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
         using var response = await _httpClient.SendAsync(message, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadFromJsonAsync<ImageResponse>(cancellationToken: cancellationToken);
+        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var detail = TryReadErrorMessage(responseText);
+            throw new InvalidOperationException($"OpenRouter {(int)response.StatusCode}: {detail}");
+        }
+
+        var body = JsonSerializer.Deserialize<ImageResponse>(responseText);
         var base64 = body?.Data?.FirstOrDefault()?.Base64;
         if (string.IsNullOrWhiteSpace(base64))
             throw new InvalidOperationException("OpenRouter 응답에 이미지 데이터가 없습니다.");
 
         return Convert.FromBase64String(base64);
+    }
+
+    private static string TryReadErrorMessage(string responseText)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(responseText);
+            if (doc.RootElement.TryGetProperty("error", out var error))
+            {
+                if (error.ValueKind == JsonValueKind.String) return error.GetString() ?? responseText;
+                if (error.TryGetProperty("message", out var message)) return message.GetString() ?? responseText;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return string.IsNullOrWhiteSpace(responseText) ? "요청이 실패했습니다." : responseText;
     }
 
     private sealed class ImageResponse
