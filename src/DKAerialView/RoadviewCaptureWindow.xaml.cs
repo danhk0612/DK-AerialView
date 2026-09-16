@@ -83,7 +83,14 @@ public partial class RoadviewCaptureWindow : Window
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (!IsVisible) Show();
-        using var registration = cancellationToken.Register(() => _hostReady.TrySetCanceled(cancellationToken));
+
+        var delayTask = Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
+        var completed = await Task.WhenAny(_hostReady.Task, delayTask);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (completed != _hostReady.Task)
+            throw new TimeoutException("Kakao Roadview 호스트 초기화 시간이 초과되었습니다.");
+
         await _hostReady.Task;
     }
 
@@ -118,13 +125,19 @@ public partial class RoadviewCaptureWindow : Window
                 zoom
             }));
 
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(12));
-            using var registration = timeout.Token.Register(() => tcs.TrySetCanceled(timeout.Token));
+            var delayTask = Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
+            var completed = await Task.WhenAny(tcs.Task, delayTask);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // A missing/slow pano is not fatal to the whole collection. Skip this direction.
+            if (completed != tcs.Task)
+                return null;
+
             var ready = await tcs.Task;
             if (!ready.Found || !string.IsNullOrWhiteSpace(ready.Error)) return null;
 
-            await Task.Delay(250, cancellationToken);
+            // Give Kakao tiles a little extra time after viewpoint adjustment.
+            await Task.Delay(500, cancellationToken);
             using var stream = new MemoryStream();
             await RoadviewWebView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
             return stream.ToArray();
