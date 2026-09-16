@@ -22,13 +22,17 @@
     const message = text => document.getElementById('message').textContent = text || '';
     const currentOrigin = () => window.location.origin;
 
-    function loadScript(src) {
-      const script = document.createElement('script');
-      script.async = true;
-      script.defer = true;
-      script.src = src;
-      script.onerror = () => post({ type:'roadviewError', message:'Kakao Roadview SDK를 불러오지 못했습니다.' });
-      document.head.appendChild(script);
+    function finishSdkLoad() {
+      if (!window.kakao?.maps) {
+        sdkLoading = false;
+        post({ type:'roadviewError', message:'Kakao Roadview SDK 초기화에 실패했습니다.' });
+        return;
+      }
+      kakao.maps.load(() => {
+        sdkLoading = false;
+        const waiters = sdkWaiters.splice(0);
+        waiters.forEach(fn => fn());
+      });
     }
 
     function ensureKakaoSdk(callback) {
@@ -39,14 +43,17 @@
       sdkWaiters.push(callback);
       if (sdkLoading) return;
       sdkLoading = true;
-      window.__dkRoadviewKakaoReady = () => {
-        kakao.maps.load(() => {
-          sdkLoading = false;
-          const waiters = sdkWaiters.splice(0);
-          waiters.forEach(fn => fn());
-        });
+
+      const script = document.createElement('script');
+      script.async = true;
+      script.defer = true;
+      script.src = `https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&appkey=${encodeURIComponent(apiKey)}`;
+      script.onload = finishSdkLoad;
+      script.onerror = () => {
+        sdkLoading = false;
+        post({ type:'roadviewError', message:'Kakao Roadview SDK를 불러오지 못했습니다.' });
       };
-      loadScript(`https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&appkey=${encodeURIComponent(apiKey)}&callback=__dkRoadviewKakaoReady`);
+      document.head.appendChild(script);
     }
 
     function bearingDegrees(fromLat, fromLng, toLat, toLng) {
