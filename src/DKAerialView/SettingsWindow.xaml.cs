@@ -21,18 +21,11 @@ public partial class SettingsWindow : Window
     private async void SettingsWindow_Loaded(object sender, RoutedEventArgs e)
     {
         _settings = await _settingsService.LoadAsync();
-        GoogleKeyBox.Password = _settings.GoogleMapsApiKey;
-        NaverKeyBox.Text = _settings.NaverClientId;
         KakaoKeyBox.Password = _settings.KakaoJavaScriptKey;
         OpenRouterKeyBox.Password = _settings.OpenRouterApiKey;
         OpenRouterModelBox.Text = _settings.OpenRouterModel;
         OpenRouterPromptBox.Text = _settings.OpenRouterPrompt;
         OpenRouterAerialPromptBox.Text = _settings.OpenRouterAerialPrompt;
-
-        var provider = string.Equals(_settings.DefaultMapProvider, "Google", StringComparison.OrdinalIgnoreCase)
-            ? "google3d"
-            : _settings.DefaultMapProvider;
-        SelectByTag(DefaultProviderBox, provider, "google3d");
         SelectByTag(DefaultOutputBox, _settings.DefaultOutputPreset, "1920x1080");
     }
 
@@ -79,10 +72,8 @@ public partial class SettingsWindow : Window
 
     private async void Save_Click(object sender, RoutedEventArgs e)
     {
-        _settings.GoogleMapsApiKey = GoogleKeyBox.Password.Trim();
-        _settings.NaverClientId = NaverKeyBox.Text.Trim();
         _settings.KakaoJavaScriptKey = KakaoKeyBox.Password.Trim();
-        _settings.DefaultMapProvider = GetSelectedTag(DefaultProviderBox, "google3d");
+        _settings.DefaultMapProvider = "kakao";
         _settings.DefaultOutputPreset = GetSelectedTag(DefaultOutputBox, "1920x1080");
         _settings.OpenRouterApiKey = OpenRouterKeyBox.Password.Trim();
         _settings.OpenRouterModel = OpenRouterModelBox.SelectedItem is OpenRouterImageModel model
