@@ -24,6 +24,10 @@ jobs:
       - name: Build
         run: dotnet build DK-AerialView.sln --configuration Release --no-restore
 
+      - name: Restore win-x64 runtime
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: dotnet restore src/DKAerialView/DKAerialView.csproj --runtime win-x64
+
       - name: Publish win-x64 test build
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: dotnet publish src/DKAerialView/DKAerialView.csproj --configuration Release --runtime win-x64 --self-contained true --output publish/win-x64 --no-restore -p:DebugType=None -p:DebugSymbols=false
