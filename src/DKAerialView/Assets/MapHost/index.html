@@ -25,23 +25,48 @@
   <script>
     let map = null;
     let geocoder = null;
+    let provider = null;
     let suppressCameraMessage = false;
     let frameWidth = 16;
     let frameHeight = 9;
 
     const post = payload => window.chrome.webview.postMessage(payload);
     const message = text => document.getElementById('message').textContent = text || '';
+    const mapNode = () => document.getElementById('map');
+
+    function resetMapHost() {
+      map = null;
+      geocoder = null;
+      mapNode().innerHTML = '';
+      document.getElementById('frame').style.display = 'none';
+      message('지도 초기화 중...');
+    }
+
+    function loadScript(id, src, onload) {
+      const previous = document.getElementById(id);
+      if (previous) previous.remove();
+      const script = document.createElement('script');
+      script.id = id;
+      script.async = true;
+      script.defer = true;
+      script.src = src;
+      script.onload = onload || null;
+      script.onerror = () => post({ type:'error', message:`지도 SDK를 불러오지 못했습니다. (${provider})` });
+      document.head.appendChild(script);
+    }
+
+    function finishReady(capabilities) {
+      message('');
+      resizeFrame();
+      document.getElementById('frame').style.display = 'block';
+      post({ type:'ready', provider, capabilities });
+      emitCamera();
+    }
 
     function loadGoogle(apiKey) {
-      if (!apiKey) {
-        message('설정에서 Google Maps API Key를 입력하세요.');
-        post({ type:'error', message:'Google Maps API Key가 설정되지 않았습니다.' });
-        return;
-      }
-      const existing = document.getElementById('google-maps-script');
-      if (existing) existing.remove();
+      if (!apiKey) return missingKey('Google Maps API Key');
       window.__initGoogleMap = () => {
-        map = new google.maps.Map(document.getElementById('map'), {
+        map = new google.maps.Map(mapNode(), {
           center: { lat:37.5665, lng:126.9780 },
           zoom:18,
           tilt:45,
@@ -54,37 +79,145 @@
         });
         geocoder = new google.maps.Geocoder();
         ['center_changed','zoom_changed','heading_changed','tilt_changed'].forEach(name => map.addListener(name, emitCamera));
-        message('');
-        resizeFrame();
-        document.getElementById('frame').style.display = 'block';
-        post({ type:'ready' });
+        finishReady({ tilt:true, heading:true, geocode:true, satellite:true });
       };
-      const script = document.createElement('script');
-      script.id = 'google-maps-script';
-      script.async = true;
-      script.defer = true;
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&callback=__initGoogleMap&v=weekly`;
-      script.onerror = () => post({ type:'error', message:'Google Maps 스크립트를 불러오지 못했습니다.' });
-      document.head.appendChild(script);
+      loadScript('google-maps-script', `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&callback=__initGoogleMap&v=weekly`);
+    }
+
+    function loadNaver(clientId) {
+      if (!clientId) return missingKey('Naver Maps Client ID');
+      loadScript(
+        'naver-maps-script',
+        `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(clientId)}&submodules=geocoder`,
+        () => {
+          if (!window.naver || !naver.maps) {
+            post({ type:'error', message:'Naver Maps SDK 초기화에 실패했습니다.' });
+            return;
+          }
+          const create = () => {
+            map = new naver.maps.Map(mapNode(), {
+              center:new naver.maps.LatLng(37.5665,126.9780),
+              zoom:18,
+              mapTypeId:naver.maps.MapTypeId.SATELLITE,
+              mapTypeControl:true
+            });
+            ['center_changed','zoom_changed'].forEach(name => naver.maps.Event.addListener(map, name, emitCamera));
+            finishReady({ tilt:false, heading:false, geocode:true, satellite:true });
+          };
+          if (naver.maps.jsContentLoaded) create();
+          else naver.maps.onJSContentLoaded = create;
+        }
+      );
+    }
+
+    function loadKakao(appKey) {
+      if (!appKey) return missingKey('Kakao JavaScript Key');
+      loadScript(
+        'kakao-maps-script',
+        `https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&appkey=${encodeURIComponent(appKey)}&libraries=services`,
+        () => {
+          if (!window.kakao || !kakao.maps) {
+            post({ type:'error', message:'Kakao Maps SDK 초기화에 실패했습니다.' });
+            return;
+          }
+          kakao.maps.load(() => {
+            map = new kakao.maps.Map(mapNode(), {
+              center:new kakao.maps.LatLng(37.5665,126.9780),
+              level:4
+            });
+            map.setMapTypeId(kakao.maps.MapTypeId.SKYVIEW);
+            geocoder = new kakao.maps.services.Geocoder();
+            kakao.maps.event.addListener(map, 'center_changed', emitCamera);
+            kakao.maps.event.addListener(map, 'zoom_changed', emitCamera);
+            finishReady({ tilt:false, heading:false, geocode:true, satellite:true });
+          });
+        }
+      );
+    }
+
+    function missingKey(name) {
+      message(`설정에서 ${name}를 입력하세요.`);
+      post({ type:'error', message:`${name}가 설정되지 않았습니다.` });
+    }
+
+    function initialize(cmd) {
+      provider = (cmd.provider || 'google').toLowerCase();
+      resetMapHost();
+      if (provider === 'google') loadGoogle(cmd.googleApiKey || cmd.apiKey);
+      else if (provider === 'naver') loadNaver(cmd.naverClientId);
+      else if (provider === 'kakao') loadKakao(cmd.kakaoJavaScriptKey);
+      else post({ type:'error', message:`지원하지 않는 지도 Provider입니다: ${provider}` });
     }
 
     function emitCamera() {
       if (!map || suppressCameraMessage) return;
-      const center = map.getCenter();
-      if (!center) return;
-      post({
-        type:'cameraChanged', lat:center.lat(), lng:center.lng(),
-        zoom:map.getZoom() ?? 18, tilt:map.getTilt() ?? 0, heading:map.getHeading() ?? 0
-      });
+      if (provider === 'google') {
+        const center = map.getCenter();
+        if (!center) return;
+        post({ type:'cameraChanged', lat:center.lat(), lng:center.lng(), zoom:map.getZoom() ?? 18, tilt:map.getTilt() ?? 0, heading:map.getHeading() ?? 0 });
+      } else if (provider === 'naver') {
+        const center = map.getCenter();
+        post({ type:'cameraChanged', lat:center.lat(), lng:center.lng(), zoom:map.getZoom(), tilt:0, heading:0 });
+      } else if (provider === 'kakao') {
+        const center = map.getCenter();
+        post({ type:'cameraChanged', lat:center.getLat(), lng:center.getLng(), zoom:22-map.getLevel(), tilt:0, heading:0 });
+      }
     }
 
     function setCamera(cmd) {
       if (!map) return;
       suppressCameraMessage = true;
-      map.moveCamera({
-        center:{ lat:cmd.lat, lng:cmd.lng }, zoom:cmd.zoom, tilt:cmd.tilt, heading:cmd.heading
-      });
-      setTimeout(() => { suppressCameraMessage = false; emitCamera(); }, 50);
+      if (provider === 'google') {
+        map.moveCamera({ center:{ lat:cmd.lat, lng:cmd.lng }, zoom:cmd.zoom, tilt:cmd.tilt, heading:cmd.heading });
+      } else if (provider === 'naver') {
+        map.setCenter(new naver.maps.LatLng(cmd.lat, cmd.lng));
+        map.setZoom(Math.max(1, Math.min(21, Math.round(cmd.zoom))));
+      } else if (provider === 'kakao') {
+        map.setCenter(new kakao.maps.LatLng(cmd.lat, cmd.lng));
+        map.setLevel(Math.max(1, Math.min(14, Math.round(22-cmd.zoom))));
+      }
+      setTimeout(() => { suppressCameraMessage = false; emitCamera(); }, 80);
+    }
+
+    async function searchAddress(address) {
+      if (!map) return;
+      if (provider === 'google') {
+        if (!geocoder) return;
+        try {
+          const response = await geocoder.geocode({ address });
+          const result = response.results && response.results[0];
+          if (!result) throw new Error('검색 결과가 없습니다.');
+          const location = result.geometry.location;
+          map.setCenter(location);
+          post({ type:'geocodeResult', lat:location.lat(), lng:location.lng(), formattedAddress:result.formatted_address });
+        } catch (error) {
+          post({ type:'error', message:`주소 검색 실패: ${error.message || error}` });
+        }
+      } else if (provider === 'naver') {
+        naver.maps.Service.geocode({ query:address }, (status, response) => {
+          if (status !== naver.maps.Service.Status.OK || !response.v2 || !response.v2.addresses || !response.v2.addresses.length) {
+            post({ type:'error', message:'주소 검색 실패 또는 검색 결과가 없습니다.' });
+            return;
+          }
+          const item = response.v2.addresses[0];
+          const lat = Number(item.y);
+          const lng = Number(item.x);
+          map.setCenter(new naver.maps.LatLng(lat,lng));
+          post({ type:'geocodeResult', lat, lng, formattedAddress:item.roadAddress || item.jibunAddress || address });
+        });
+      } else if (provider === 'kakao') {
+        if (!geocoder) return;
+        geocoder.addressSearch(address, (result, status) => {
+          if (status !== kakao.maps.services.Status.OK || !result || !result.length) {
+            post({ type:'error', message:'주소 검색 실패 또는 검색 결과가 없습니다.' });
+            return;
+          }
+          const lat = Number(result[0].y);
+          const lng = Number(result[0].x);
+          map.setCenter(new kakao.maps.LatLng(lat,lng));
+          post({ type:'geocodeResult', lat, lng, formattedAddress:result[0].road_address?.address_name || result[0].address_name || address });
+        });
+      }
     }
 
     function setFrame(width, height) {
@@ -102,7 +235,6 @@
       const viewportRatio = viewportWidth / viewportHeight;
       let width;
       let height;
-
       if (viewportRatio > targetRatio) {
         height = viewportHeight * 0.92;
         width = height * targetRatio;
@@ -110,31 +242,15 @@
         width = viewportWidth * 0.92;
         height = width / targetRatio;
       }
-
       frame.style.width = `${Math.max(1, width)}px`;
       frame.style.height = `${Math.max(1, height)}px`;
     }
 
-    async function searchAddress(address) {
-      if (!geocoder || !map) return;
-      try {
-        const response = await geocoder.geocode({ address });
-        const result = response.results && response.results[0];
-        if (!result) throw new Error('검색 결과가 없습니다.');
-        const location = result.geometry.location;
-        map.setCenter(location);
-        post({ type:'geocodeResult', lat:location.lat(), lng:location.lng(), formattedAddress:result.formatted_address });
-      } catch (error) {
-        post({ type:'error', message:`주소 검색 실패: ${error.message || error}` });
-      }
-    }
-
     window.addEventListener('resize', resizeFrame);
-
     window.chrome.webview.addEventListener('message', event => {
       const cmd = event.data;
       if (!cmd || !cmd.type) return;
-      if (cmd.type === 'initialize') loadGoogle(cmd.apiKey);
+      if (cmd.type === 'initialize') initialize(cmd);
       else if (cmd.type === 'setCamera') setCamera(cmd);
       else if (cmd.type === 'searchAddress') searchAddress(cmd.address);
       else if (cmd.type === 'setFrame') setFrame(cmd.width, cmd.height);
