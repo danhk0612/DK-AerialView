@@ -22,8 +22,6 @@ public partial class AerialGenerationWindow : Window
 
     private void UseCurrentOutputCheckBox_Changed(object sender, RoutedEventArgs e)
     {
-        // IsChecked="True" can raise Checked while InitializeComponent is still
-        // constructing controls declared later in XAML. Ignore that early event.
         if (!IsLoaded || WidthBox is null || HeightBox is null) return;
 
         var custom = UseCurrentOutputCheckBox.IsChecked != true;
@@ -58,7 +56,12 @@ public partial class AerialGenerationWindow : Window
             StructurePreservation = ReadEnum<StructurePreservationLevel>(PreservationBox, StructurePreservationLevel.High),
             RenderStyle = ReadEnum<AerialRenderStyle>(StyleBox, AerialRenderStyle.Realistic),
             TargetWidth = width,
-            TargetHeight = height
+            TargetHeight = height,
+            UseKakaoRoadviewReferences = UseRoadviewCheckBox.IsChecked == true,
+            RoadviewDistanceMeters = ReadIntTag(RoadviewDistanceBox, 100),
+            RoadviewSearchRadiusMeters = ReadIntTag(RoadviewRadiusBox, 100),
+            RoadviewTilt = 0,
+            RoadviewZoom = 0
         };
 
         DialogResult = true;
@@ -66,6 +69,12 @@ public partial class AerialGenerationWindow : Window
 
     private static bool TryReadDimension(string? text, out int value)
         => int.TryParse(text, out value) && value > 0;
+
+    private static int ReadIntTag(ComboBox box, int fallback)
+    {
+        var tag = (box.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        return int.TryParse(tag, out var value) ? value : fallback;
+    }
 
     private static T ReadEnum<T>(ComboBox box, T fallback) where T : struct
     {
