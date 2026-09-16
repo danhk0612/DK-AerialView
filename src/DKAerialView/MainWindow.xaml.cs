@@ -77,9 +77,14 @@ public partial class MainWindow : Window
                 if (root.TryGetProperty("lat", out var lat)) _latitude = lat.GetDouble();
                 if (root.TryGetProperty("lng", out var lng)) _longitude = lng.GetDouble();
                 _syncingCamera = true;
-                if (root.TryGetProperty("zoom", out var zoom)) ZoomSlider.Value = Math.Clamp(zoom.GetDouble(), ZoomSlider.Minimum, ZoomSlider.Maximum);
-                if (root.TryGetProperty("tilt", out var tilt) && TiltSlider.IsEnabled) TiltSlider.Value = tilt.GetDouble();
-                if (root.TryGetProperty("heading", out var heading) && HeadingSlider.IsEnabled) HeadingSlider.Value = heading.GetDouble();
+                if (root.TryGetProperty("zoom", out var zoom) && ZoomSlider.IsEnabled)
+                    ZoomSlider.Value = Math.Clamp(zoom.GetDouble(), ZoomSlider.Minimum, ZoomSlider.Maximum);
+                if (root.TryGetProperty("range", out var range) && RangeSlider.IsEnabled)
+                    RangeSlider.Value = Math.Clamp(range.GetDouble(), RangeSlider.Minimum, RangeSlider.Maximum);
+                if (root.TryGetProperty("tilt", out var tilt) && TiltSlider.IsEnabled)
+                    TiltSlider.Value = Math.Clamp(tilt.GetDouble(), TiltSlider.Minimum, TiltSlider.Maximum);
+                if (root.TryGetProperty("heading", out var heading) && HeadingSlider.IsEnabled)
+                    HeadingSlider.Value = NormalizeHeading(heading.GetDouble());
                 _syncingCamera = false;
                 break;
             case "geocodeResult":
@@ -87,6 +92,10 @@ public partial class MainWindow : Window
                 if (root.TryGetProperty("lng", out var resultLng)) _longitude = resultLng.GetDouble();
                 if (root.TryGetProperty("formattedAddress", out var formatted))
                     StatusText.Text = formatted.GetString() ?? "주소 검색 완료";
+                break;
+            case "diagnostic":
+                if (root.TryGetProperty("message", out var diagnostic))
+                    StatusText.Text = diagnostic.GetString() ?? StatusText.Text;
                 break;
             case "error":
                 _webReady = false;
@@ -124,6 +133,7 @@ public partial class MainWindow : Window
             lat = _latitude,
             lng = _longitude,
             zoom = ZoomSlider.Value,
+            range = RangeSlider.Value,
             tilt = TiltSlider.IsEnabled ? TiltSlider.Value : 0,
             heading = HeadingSlider.IsEnabled ? HeadingSlider.Value : 0
         };
@@ -164,13 +174,15 @@ public partial class MainWindow : Window
     {
         if (!IsLoaded || CameraPresetBox.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
         var values = tag.Split(',');
-        if (values.Length != 3) return;
+        if (values.Length != 4) return;
+
         _syncingCamera = true;
         ZoomSlider.Value = double.Parse(values[0], System.Globalization.CultureInfo.InvariantCulture);
+        RangeSlider.Value = double.Parse(values[1], System.Globalization.CultureInfo.InvariantCulture);
         if (TiltSlider.IsEnabled)
-            TiltSlider.Value = double.Parse(values[1], System.Globalization.CultureInfo.InvariantCulture);
+            TiltSlider.Value = double.Parse(values[2], System.Globalization.CultureInfo.InvariantCulture);
         if (HeadingSlider.IsEnabled)
-            HeadingSlider.Value = double.Parse(values[2], System.Globalization.CultureInfo.InvariantCulture);
+            HeadingSlider.Value = double.Parse(values[3], System.Globalization.CultureInfo.InvariantCulture);
         _syncingCamera = false;
         await SendCameraAsync();
     }
@@ -184,7 +196,7 @@ public partial class MainWindow : Window
     {
         if (!IsLoaded) return;
         _webReady = false;
-        SetProviderCapabilities(false, false);
+        SetProviderCapabilities(false, false, false, false);
         UpdateActionButtons();
         if (MapWebView.CoreWebView2 is not null)
             await SendInitializeAsync();
@@ -274,7 +286,7 @@ public partial class MainWindow : Window
         MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "setFrameVisible", visible = false }));
         try
         {
-            await Task.Delay(80);
+            await Task.Delay(120);
             using var stream = new MemoryStream();
             await MapWebView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
             return NormalizeImageToPng(stream.ToArray(), targetWidth, targetHeight, resizeToTarget);
@@ -327,18 +339,32 @@ public partial class MainWindow : Window
 
     private void ApplyProviderCapabilities(JsonElement root)
     {
+        var zoom = false;
         var tilt = false;
         var heading = false;
+        var range = false;
         if (root.TryGetProperty("capabilities", out var capabilities))
         {
+            if (capabilities.TryGetProperty("zoom", out var zoomNode)) zoom = zoomNode.GetBoolean();
             if (capabilities.TryGetProperty("tilt", out var tiltNode)) tilt = tiltNode.GetBoolean();
             if (capabilities.TryGetProperty("heading", out var headingNode)) heading = headingNode.GetBoolean();
+            if (capabilities.TryGetProperty("range", out var rangeNode)) range = rangeNode.GetBoolean();
         }
-        SetProviderCapabilities(tilt, heading);
+        SetProviderCapabilities(zoom, tilt, heading, range);
     }
 
-    private void SetProviderCapabilities(bool tilt, bool heading)
+    private void SetProviderCapabilities(bool zoom, bool tilt, bool heading, bool range)
     {
+        ZoomSlider.IsEnabled = zoom;
+        ZoomLabel.IsEnabled = zoom;
+        ZoomSlider.Visibility = zoom ? Visibility.Visible : Visibility.Collapsed;
+        ZoomLabel.Visibility = zoom ? Visibility.Visible : Visibility.Collapsed;
+
+        RangeSlider.IsEnabled = range;
+        RangeLabel.IsEnabled = range;
+        RangeSlider.Visibility = range ? Visibility.Visible : Visibility.Collapsed;
+        RangeLabel.Visibility = range ? Visibility.Visible : Visibility.Collapsed;
+
         TiltSlider.IsEnabled = tilt;
         TiltLabel.IsEnabled = tilt;
         HeadingSlider.IsEnabled = heading;
@@ -351,14 +377,17 @@ public partial class MainWindow : Window
     {
         return ProviderBox.SelectedItem is ComboBoxItem item && item.Tag is string tag
             ? tag
-            : "google";
+            : "google3d";
     }
 
     private void SelectConfiguredProvider()
     {
         var configured = string.IsNullOrWhiteSpace(_settings.DefaultMapProvider)
-            ? "google"
+            ? "google3d"
             : _settings.DefaultMapProvider.Trim().ToLowerInvariant();
+
+        if (configured == "google") configured = "google3d";
+
         foreach (var candidate in ProviderBox.Items.OfType<ComboBoxItem>())
         {
             if (string.Equals(candidate.Tag as string, configured, StringComparison.OrdinalIgnoreCase) ||
@@ -374,10 +403,19 @@ public partial class MainWindow : Window
     {
         return provider?.ToLowerInvariant() switch
         {
+            "google3d" => "Google 3D",
+            "google" => "Google 위성",
             "naver" => "Naver",
             "kakao" => "Kakao",
-            _ => "Google"
+            _ => "Google 3D"
         };
+    }
+
+    private static double NormalizeHeading(double heading)
+    {
+        var normalized = heading % 360;
+        if (normalized < 0) normalized += 360;
+        return normalized;
     }
 
     private static string GetAspectRatio(int width, int height)
