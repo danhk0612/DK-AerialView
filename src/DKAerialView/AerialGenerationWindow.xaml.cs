@@ -22,6 +22,10 @@ public partial class AerialGenerationWindow : Window
 
     private void UseCurrentOutputCheckBox_Changed(object sender, RoutedEventArgs e)
     {
+        // IsChecked="True" can raise Checked while InitializeComponent is still
+        // constructing controls declared later in XAML. Ignore that early event.
+        if (!IsLoaded || WidthBox is null || HeightBox is null) return;
+
         var custom = UseCurrentOutputCheckBox.IsChecked != true;
         WidthBox.IsEnabled = custom;
         HeightBox.IsEnabled = custom;
