@@ -34,13 +34,13 @@ public partial class MainWindow : Window
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         _settings = await _settingsService.LoadAsync();
-        SelectConfiguredProvider();
+        SelectConfiguredOutputPreset();
         await InitializeMapAsync();
     }
 
     private async Task InitializeMapAsync()
     {
-        StatusText.Text = "지도 초기화 중...";
+        StatusText.Text = "Kakao SkyView 초기화 중...";
         await MapWebView.EnsureCoreWebView2Async();
         MapWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
 
@@ -65,12 +65,8 @@ public partial class MainWindow : Window
                 break;
             case "ready":
                 _webReady = true;
-                ApplyProviderCapabilities(root);
                 UpdateActionButtons();
-                var readyProvider = root.TryGetProperty("provider", out var providerNode)
-                    ? providerNode.GetString()
-                    : GetSelectedProvider();
-                StatusText.Text = $"{GetProviderDisplayName(readyProvider)} 지도 준비됨";
+                StatusText.Text = "Kakao SkyView 지도 준비됨";
                 await SendCameraAsync();
                 await SendFrameAsync();
                 break;
@@ -78,13 +74,9 @@ public partial class MainWindow : Window
                 if (root.TryGetProperty("lat", out var lat)) _latitude = lat.GetDouble();
                 if (root.TryGetProperty("lng", out var lng)) _longitude = lng.GetDouble();
                 _syncingCamera = true;
-                if (root.TryGetProperty("zoom", out var zoom) && ZoomSlider.IsEnabled)
+                if (root.TryGetProperty("zoom", out var zoom))
                     ZoomSlider.Value = Math.Clamp(zoom.GetDouble(), ZoomSlider.Minimum, ZoomSlider.Maximum);
-                if (root.TryGetProperty("range", out var range) && RangeSlider.IsEnabled)
-                    RangeSlider.Value = Math.Clamp(range.GetDouble(), RangeSlider.Minimum, RangeSlider.Maximum);
-                if (root.TryGetProperty("tilt", out var tilt) && TiltSlider.IsEnabled)
-                    TiltSlider.Value = Math.Clamp(tilt.GetDouble(), TiltSlider.Minimum, TiltSlider.Maximum);
-                if (root.TryGetProperty("heading", out var heading) && HeadingSlider.IsEnabled)
+                if (root.TryGetProperty("heading", out var heading))
                     HeadingSlider.Value = Math.Clamp(NormalizeHeading(heading.GetDouble()), HeadingSlider.Minimum, HeadingSlider.Maximum);
                 _syncingCamera = false;
                 UpdateCameraValueText();
@@ -103,8 +95,8 @@ public partial class MainWindow : Window
                 _webReady = false;
                 UpdateActionButtons();
                 StatusText.Text = root.TryGetProperty("message", out var message)
-                    ? message.GetString() ?? "지도 오류"
-                    : "지도 오류";
+                    ? message.GetString() ?? "Kakao 지도 오류"
+                    : "Kakao 지도 오류";
                 break;
         }
     }
@@ -112,17 +104,13 @@ public partial class MainWindow : Window
     private Task SendInitializeAsync()
     {
         if (MapWebView.CoreWebView2 is null) return Task.CompletedTask;
-        var provider = GetSelectedProvider();
         var command = new
         {
             type = "initialize",
-            provider,
-            googleApiKey = _settings.GoogleMapsApiKey,
-            naverClientId = _settings.NaverClientId,
             kakaoJavaScriptKey = _settings.KakaoJavaScriptKey
         };
         MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(command));
-        StatusText.Text = $"{GetProviderDisplayName(provider)} 지도 초기화 중...";
+        StatusText.Text = "Kakao SkyView 초기화 중...";
         return Task.CompletedTask;
     }
 
@@ -135,9 +123,7 @@ public partial class MainWindow : Window
             lat = _latitude,
             lng = _longitude,
             zoom = ZoomSlider.Value,
-            range = RangeSlider.Value,
-            tilt = TiltSlider.IsEnabled ? TiltSlider.Value : 0,
-            heading = HeadingSlider.IsEnabled ? HeadingSlider.Value : 0
+            heading = HeadingSlider.Value
         };
         MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(command));
         return Task.CompletedTask;
@@ -161,8 +147,11 @@ public partial class MainWindow : Window
     private Task SearchAddressAsync()
     {
         if (!_webReady || string.IsNullOrWhiteSpace(AddressBox.Text)) return Task.CompletedTask;
-        var command = new { type = "searchAddress", address = AddressBox.Text.Trim() };
-        MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(command));
+        MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+        {
+            type = "searchAddress",
+            address = AddressBox.Text.Trim()
+        }));
         StatusText.Text = "주소 검색 중...";
         return Task.CompletedTask;
     }
@@ -177,15 +166,11 @@ public partial class MainWindow : Window
     {
         if (!IsLoaded || CameraPresetBox.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
         var values = tag.Split(',');
-        if (values.Length != 4) return;
+        if (values.Length != 2) return;
 
         _syncingCamera = true;
         ZoomSlider.Value = double.Parse(values[0], System.Globalization.CultureInfo.InvariantCulture);
-        RangeSlider.Value = double.Parse(values[1], System.Globalization.CultureInfo.InvariantCulture);
-        if (TiltSlider.IsEnabled)
-            TiltSlider.Value = double.Parse(values[2], System.Globalization.CultureInfo.InvariantCulture);
-        if (HeadingSlider.IsEnabled)
-            HeadingSlider.Value = Math.Min(HeadingSlider.Maximum, double.Parse(values[3], System.Globalization.CultureInfo.InvariantCulture));
+        HeadingSlider.Value = double.Parse(values[1], System.Globalization.CultureInfo.InvariantCulture);
         _syncingCamera = false;
         UpdateCameraValueText();
         await SendCameraAsync();
@@ -196,23 +181,13 @@ public partial class MainWindow : Window
         if (IsLoaded) await SendFrameAsync();
     }
 
-    private async void ProviderBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (!IsLoaded) return;
-        _webReady = false;
-        SetProviderCapabilities(false, false, false, false);
-        UpdateActionButtons();
-        if (MapWebView.CoreWebView2 is not null)
-            await SendInitializeAsync();
-    }
-
     private async void Capture_Click(object sender, RoutedEventArgs e)
     {
         if (!_webReady || _processing || !TryGetOutputSize(out var targetWidth, out var targetHeight)) return;
 
         var dialog = new SaveFileDialog
         {
-            Title = "조감도 원본 저장",
+            Title = "항공 프레임 저장",
             Filter = "PNG 이미지 (*.png)|*.png",
             FileName = $"DK-AerialView-{DateTime.Now:yyyyMMdd-HHmmss}.png",
             DefaultExt = ".png"
@@ -291,12 +266,33 @@ public partial class MainWindow : Window
         try
         {
             SetProcessing(true);
-            StatusText.Text = "AI 조감도용 원본 프레임 캡처 중...";
-            var sourceBytes = await CaptureFrameAsync(targetWidth, targetHeight, false);
 
+            var collectedRoadviews = options.RoadviewReferences.Count(bytes => bytes is { Length: > 0 });
+            var availableModels = await _openRouterImageService.GetEditingModelsAsync(_settings.OpenRouterApiKey);
+            var capability = availableModels.FirstOrDefault(model =>
+                string.Equals(model.Id, _settings.OpenRouterModel, StringComparison.OrdinalIgnoreCase));
+            var usableRoadviews = capability is null
+                ? 0
+                : Math.Min(collectedRoadviews, Math.Max(0, capability.MaxInputReferences - 1));
+
+            StatusText.Text = options.UseKakaoRoadviewReferences
+                ? $"참조 준비: 항공사진 1장 + 카카오 로드뷰 {usableRoadviews}/{collectedRoadviews}장 사용"
+                : "참조 준비: 항공사진 1장";
+
+            if (options.UseKakaoRoadviewReferences && collectedRoadviews > 0 && usableRoadviews == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "선택한 OpenRouter 모델은 추가 참조 이미지를 받을 수 없어 수집한 카카오 로드뷰를 사용할 수 없습니다.\n설정의 모델 기능에서 '참조 이미지 최대 2장 이상'인 모델을 선택하세요.",
+                    "DK AerialView",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+
+            var sourceBytes = await CaptureFrameAsync(targetWidth, targetHeight, false);
             var resolution = Math.Max(targetWidth, targetHeight) >= 3000 ? "4K" : "2K";
             var aspectRatio = GetAspectRatio(targetWidth, targetHeight);
-            StatusText.Text = $"OpenRouter AI 조감도 생성 중... ({resolution}, {aspectRatio})";
+            StatusText.Text = $"AI 사선 조감도 재구성 중... 항공 1 + 로드뷰 {usableRoadviews}장 ({resolution}, {aspectRatio})";
 
             var resultBytes = await _openRouterImageService.GenerateAerialViewAsync(
                 _settings.OpenRouterApiKey,
@@ -308,12 +304,12 @@ public partial class MainWindow : Window
                 aspectRatio);
 
             var normalizedResult = NormalizeImageToPng(resultBytes, targetWidth, targetHeight, true);
-            StatusText.Text = $"AI 조감도 생성 완료: {targetWidth} × {targetHeight}";
+            StatusText.Text = $"AI 조감도 생성 완료: {targetWidth} × {targetHeight} · 로드뷰 {usableRoadviews}장 사용";
 
             var resultWindow = new ResultWindow(sourceBytes, normalizedResult)
             {
                 Owner = this,
-                Title = "DK AerialView - AI 조감도 결과"
+                Title = $"DK AerialView - AI 조감도 결과 (로드뷰 {usableRoadviews}장)"
             };
             resultWindow.ShowDialog();
         }
@@ -347,7 +343,7 @@ public partial class MainWindow : Window
         MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "setFrameVisible", visible = false }));
         try
         {
-            await Task.Delay(120);
+            await Task.Delay(150);
             using var stream = new MemoryStream();
             await MapWebView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
             return NormalizeImageToPng(stream.ToArray(), targetWidth, targetHeight, resizeToTarget);
@@ -398,91 +394,12 @@ public partial class MainWindow : Window
         return output.ToArray();
     }
 
-    private void ApplyProviderCapabilities(JsonElement root)
-    {
-        var zoom = false;
-        var tilt = false;
-        var heading = false;
-        var range = false;
-        if (root.TryGetProperty("capabilities", out var capabilities))
-        {
-            if (capabilities.TryGetProperty("zoom", out var zoomNode)) zoom = zoomNode.GetBoolean();
-            if (capabilities.TryGetProperty("tilt", out var tiltNode)) tilt = tiltNode.GetBoolean();
-            if (capabilities.TryGetProperty("heading", out var headingNode)) heading = headingNode.GetBoolean();
-            if (capabilities.TryGetProperty("range", out var rangeNode)) range = rangeNode.GetBoolean();
-        }
-        SetProviderCapabilities(zoom, tilt, heading, range);
-    }
-
-    private void SetProviderCapabilities(bool zoom, bool tilt, bool heading, bool range)
-    {
-        ZoomSlider.IsEnabled = zoom;
-        ZoomLabel.IsEnabled = zoom;
-        ZoomValueText.IsEnabled = zoom;
-        ZoomSlider.Visibility = zoom ? Visibility.Visible : Visibility.Collapsed;
-        ZoomLabel.Visibility = zoom ? Visibility.Visible : Visibility.Collapsed;
-        ZoomValueText.Visibility = zoom ? Visibility.Visible : Visibility.Collapsed;
-
-        RangeSlider.IsEnabled = range;
-        RangeLabel.IsEnabled = range;
-        RangeSlider.Visibility = range ? Visibility.Visible : Visibility.Collapsed;
-        RangeLabel.Visibility = range ? Visibility.Visible : Visibility.Collapsed;
-
-        TiltSlider.IsEnabled = tilt;
-        TiltLabel.IsEnabled = tilt;
-        HeadingSlider.IsEnabled = heading;
-        HeadingLabel.IsEnabled = heading;
-        HeadingValueText.IsEnabled = heading;
-        HeadingLabel.Text = GetSelectedProvider() == "google3d" ? "Heading" : "2D 회전";
-        if (!tilt) TiltSlider.Value = 0;
-        if (!heading) HeadingSlider.Value = 0;
-        UpdateCameraValueText();
-    }
-
     private void UpdateCameraValueText()
     {
         if (ZoomValueText is not null)
-            ZoomValueText.Text = ZoomSlider.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+            ZoomValueText.Text = ZoomSlider.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
         if (HeadingValueText is not null)
-            HeadingValueText.Text = $"{HeadingSlider.Value:F0}°";
-    }
-
-    private string GetSelectedProvider()
-    {
-        return ProviderBox.SelectedItem is ComboBoxItem item && item.Tag is string tag
-            ? tag
-            : "google3d";
-    }
-
-    private void SelectConfiguredProvider()
-    {
-        var configured = string.IsNullOrWhiteSpace(_settings.DefaultMapProvider)
-            ? "google3d"
-            : _settings.DefaultMapProvider.Trim().ToLowerInvariant();
-
-        if (configured == "google") configured = "google3d";
-
-        foreach (var candidate in ProviderBox.Items.OfType<ComboBoxItem>())
-        {
-            if (string.Equals(candidate.Tag as string, configured, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(candidate.Content?.ToString(), _settings.DefaultMapProvider, StringComparison.OrdinalIgnoreCase))
-            {
-                ProviderBox.SelectedItem = candidate;
-                return;
-            }
-        }
-    }
-
-    private static string GetProviderDisplayName(string? provider)
-    {
-        return provider?.ToLowerInvariant() switch
-        {
-            "google3d" => "Google 3D",
-            "google" => "Google 위성",
-            "naver" => "Naver",
-            "kakao" => "Kakao",
-            _ => "Google 3D"
-        };
+            HeadingValueText.Text = $"{Math.Round(HeadingSlider.Value):0}°";
     }
 
     private static double NormalizeHeading(double heading)
@@ -516,6 +433,20 @@ public partial class MainWindow : Window
         if (OutputPresetBox.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return false;
         var values = tag.Split(',');
         return values.Length == 2 && int.TryParse(values[0], out width) && int.TryParse(values[1], out height);
+    }
+
+    private void SelectConfiguredOutputPreset()
+    {
+        var configured = (_settings.DefaultOutputPreset ?? "1920x1080").Replace('×', 'x').Replace(',', 'x');
+        foreach (var item in OutputPresetBox.Items.OfType<ComboBoxItem>())
+        {
+            var tag = (item.Tag?.ToString() ?? string.Empty).Replace(',', 'x');
+            if (string.Equals(tag, configured, StringComparison.OrdinalIgnoreCase))
+            {
+                OutputPresetBox.SelectedItem = item;
+                return;
+            }
+        }
     }
 
     private void SetProcessing(bool processing)
