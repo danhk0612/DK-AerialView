@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DKAerialView.Models;
 
 namespace DKAerialView.Services;
 
@@ -140,6 +141,20 @@ public sealed class OpenRouterImageService
             throw new InvalidOperationException("OpenRouter 응답에 이미지 데이터가 없습니다.");
 
         return Convert.FromBase64String(base64);
+    }
+
+    public Task<byte[]> GenerateAerialViewAsync(
+        string apiKey,
+        string model,
+        byte[] sourceImage,
+        string basePrompt,
+        AerialGenerationOptions options,
+        string resolution,
+        string aspectRatio,
+        CancellationToken cancellationToken = default)
+    {
+        var prompt = OpenRouterPromptBuilder.BuildAerialPrompt(basePrompt, options);
+        return EnhanceAsync(apiKey, model, sourceImage, prompt, resolution, aspectRatio, cancellationToken);
     }
 
     private static string? SelectResolution(IReadOnlyList<string> supported, string requested)
