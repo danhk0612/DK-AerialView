@@ -56,7 +56,7 @@
                 </ComboBox>
 
                 <Button x:Name="CaptureButton" Height="38" Margin="0,24,0,0" Content="현재 프레임 캡처" Click="Capture_Click" IsEnabled="False"/>
-                <Button Height="38" Margin="0,8,0,0" Content="AI 이미지 향상" IsEnabled="False" ToolTip="캡처 완료 후 결과 창과 함께 활성화 예정"/>
+                <Button x:Name="EnhanceButton" Height="38" Margin="0,8,0,0" Content="AI 이미지 향상" Click="Enhance_Click" IsEnabled="False"/>
             </StackPanel>
         </Grid>
 
