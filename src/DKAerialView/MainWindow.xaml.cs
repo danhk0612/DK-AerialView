@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        UpdateCameraValueText();
         Loaded += MainWindow_Loaded;
     }
 
@@ -84,8 +85,9 @@ public partial class MainWindow : Window
                 if (root.TryGetProperty("tilt", out var tilt) && TiltSlider.IsEnabled)
                     TiltSlider.Value = Math.Clamp(tilt.GetDouble(), TiltSlider.Minimum, TiltSlider.Maximum);
                 if (root.TryGetProperty("heading", out var heading) && HeadingSlider.IsEnabled)
-                    HeadingSlider.Value = NormalizeHeading(heading.GetDouble());
+                    HeadingSlider.Value = Math.Clamp(NormalizeHeading(heading.GetDouble()), HeadingSlider.Minimum, HeadingSlider.Maximum);
                 _syncingCamera = false;
+                UpdateCameraValueText();
                 break;
             case "geocodeResult":
                 if (root.TryGetProperty("lat", out var resultLat)) _latitude = resultLat.GetDouble();
@@ -167,6 +169,7 @@ public partial class MainWindow : Window
 
     private async void Camera_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
+        UpdateCameraValueText();
         if (IsLoaded) await SendCameraAsync();
     }
 
@@ -182,8 +185,9 @@ public partial class MainWindow : Window
         if (TiltSlider.IsEnabled)
             TiltSlider.Value = double.Parse(values[2], System.Globalization.CultureInfo.InvariantCulture);
         if (HeadingSlider.IsEnabled)
-            HeadingSlider.Value = double.Parse(values[3], System.Globalization.CultureInfo.InvariantCulture);
+            HeadingSlider.Value = Math.Min(HeadingSlider.Maximum, double.Parse(values[3], System.Globalization.CultureInfo.InvariantCulture));
         _syncingCamera = false;
+        UpdateCameraValueText();
         await SendCameraAsync();
     }
 
@@ -414,8 +418,10 @@ public partial class MainWindow : Window
     {
         ZoomSlider.IsEnabled = zoom;
         ZoomLabel.IsEnabled = zoom;
+        ZoomValueText.IsEnabled = zoom;
         ZoomSlider.Visibility = zoom ? Visibility.Visible : Visibility.Collapsed;
         ZoomLabel.Visibility = zoom ? Visibility.Visible : Visibility.Collapsed;
+        ZoomValueText.Visibility = zoom ? Visibility.Visible : Visibility.Collapsed;
 
         RangeSlider.IsEnabled = range;
         RangeLabel.IsEnabled = range;
@@ -426,8 +432,19 @@ public partial class MainWindow : Window
         TiltLabel.IsEnabled = tilt;
         HeadingSlider.IsEnabled = heading;
         HeadingLabel.IsEnabled = heading;
+        HeadingValueText.IsEnabled = heading;
+        HeadingLabel.Text = GetSelectedProvider() == "google3d" ? "Heading" : "2D 회전";
         if (!tilt) TiltSlider.Value = 0;
         if (!heading) HeadingSlider.Value = 0;
+        UpdateCameraValueText();
+    }
+
+    private void UpdateCameraValueText()
+    {
+        if (ZoomValueText is not null)
+            ZoomValueText.Text = ZoomSlider.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+        if (HeadingValueText is not null)
+            HeadingValueText.Text = $"{HeadingSlider.Value:F0}°";
     }
 
     private string GetSelectedProvider()
