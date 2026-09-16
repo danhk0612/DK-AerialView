@@ -8,12 +8,20 @@
 - [x] T06 주소 검색 및 카메라 명령 브리지
 - [x] T07 로컬 설정 저장 구조
 - [x] T08 OpenRouter 이미지 reference 요청 서비스
-- [ ] T09 실제 Windows 빌드/실행 검증 (GitHub Actions Windows Release 빌드 성공, 로컬 실행 검증 남음)
-- [ ] T10 Google API Key 입력 후 실제 지도 표시 검증
+- [ ] T09 실제 Windows 빌드/실행 검증 (GitHub Actions Windows Release 빌드 성공, 사용자 PC 실행 검증 남음)
+- [ ] T10 실제 지도/API 통합 검증 (Google/Naver/Kakao 키 및 등록 Origin 필요)
 - [x] T11 출력 프레임 오버레이/비율 조정
 - [x] T12 현재 프레임 캡처 및 PNG 저장
 - [x] T13 AI 향상 실행 + 결과 창 + Before/After 비교 + 결과 저장
 - [x] T14 OpenRouter 이미지 모델 목록/capability 조회 및 지원 파라미터 자동 적용
-- [ ] T15 Naver Maps Provider
-- [ ] T16 Kakao Maps Provider
-- [ ] T17 배포/릴리스 자동화
+- [x] T15 Naver Maps Provider 구현 (위성 지도, 주소 검색, 줌/중심 동기화)
+- [x] T16 Kakao Maps Provider 구현 (SkyView, 주소 검색, 줌/중심 동기화)
+- [x] T17 배포/릴리스 자동화 (v* 태그 → win-x64 self-contained ZIP Release)
+
+## 실제 실행 검증 항목
+
+- Google: 지도 로드, 주소 검색, zoom/tilt/heading, 위성 지도, 캡처
+- Naver: 지도 로드, 주소 검색, zoom/center, 위성 지도, 캡처
+- Kakao: 지도 로드, 주소 검색, zoom/center, SkyView, 캡처
+- OpenRouter: 모델 목록 조회, reference 이미지 요청, 결과 비교/저장
+- 공통 MapHost Origin: `https://app.dk-aerialview.local`
