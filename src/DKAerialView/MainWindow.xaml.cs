@@ -236,16 +236,7 @@ public partial class MainWindow : Window
     private async void Enhance_Click(object sender, RoutedEventArgs e)
     {
         if (!_webReady || _processing || !TryGetOutputSize(out var targetWidth, out var targetHeight)) return;
-        if (string.IsNullOrWhiteSpace(_settings.OpenRouterApiKey))
-        {
-            StatusText.Text = "설정에서 OpenRouter API Key를 입력하세요.";
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(_settings.OpenRouterModel))
-        {
-            StatusText.Text = "설정에서 OpenRouter 이미지 모델을 지정하세요.";
-            return;
-        }
+        if (!ValidateOpenRouterSettings()) return;
 
         try
         {
@@ -279,6 +270,72 @@ public partial class MainWindow : Window
         {
             SetProcessing(false);
         }
+    }
+
+    private async void GenerateAerial_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_webReady || _processing || !TryGetOutputSize(out var currentWidth, out var currentHeight)) return;
+        if (!ValidateOpenRouterSettings()) return;
+
+        var optionsWindow = new AerialGenerationWindow(currentWidth, currentHeight) { Owner = this };
+        if (optionsWindow.ShowDialog() != true || optionsWindow.Options is null) return;
+
+        var options = optionsWindow.Options;
+        var targetWidth = options.TargetWidth;
+        var targetHeight = options.TargetHeight;
+
+        try
+        {
+            SetProcessing(true);
+            StatusText.Text = "AI 조감도용 원본 프레임 캡처 중...";
+            var sourceBytes = await CaptureFrameAsync(targetWidth, targetHeight, false);
+
+            var resolution = Math.Max(targetWidth, targetHeight) >= 3000 ? "4K" : "2K";
+            var aspectRatio = GetAspectRatio(targetWidth, targetHeight);
+            StatusText.Text = $"OpenRouter AI 조감도 생성 중... ({resolution}, {aspectRatio})";
+
+            var resultBytes = await _openRouterImageService.GenerateAerialViewAsync(
+                _settings.OpenRouterApiKey,
+                _settings.OpenRouterModel,
+                sourceBytes,
+                _settings.OpenRouterAerialPrompt,
+                options,
+                resolution,
+                aspectRatio);
+
+            var normalizedResult = NormalizeImageToPng(resultBytes, targetWidth, targetHeight, true);
+            StatusText.Text = $"AI 조감도 생성 완료: {targetWidth} × {targetHeight}";
+
+            var resultWindow = new ResultWindow(sourceBytes, normalizedResult)
+            {
+                Owner = this,
+                Title = "DK AerialView - AI 조감도 결과"
+            };
+            resultWindow.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"AI 조감도 생성 실패: {ex.Message}";
+        }
+        finally
+        {
+            SetProcessing(false);
+        }
+    }
+
+    private bool ValidateOpenRouterSettings()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.OpenRouterApiKey))
+        {
+            StatusText.Text = "설정에서 OpenRouter API Key를 입력하세요.";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(_settings.OpenRouterModel))
+        {
+            StatusText.Text = "설정에서 OpenRouter 이미지 모델을 지정하세요.";
+            return false;
+        }
+        return true;
     }
 
     private async Task<byte[]> CaptureFrameAsync(int targetWidth, int targetHeight, bool resizeToTarget)
@@ -454,6 +511,7 @@ public partial class MainWindow : Window
     {
         CaptureButton.IsEnabled = _webReady && !_processing;
         EnhanceButton.IsEnabled = _webReady && !_processing;
+        GenerateAerialButton.IsEnabled = _webReady && !_processing;
     }
 
     private async void Settings_Click(object sender, RoutedEventArgs e)
