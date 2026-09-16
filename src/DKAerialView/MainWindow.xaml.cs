@@ -174,7 +174,7 @@ public partial class MainWindow : Window
         {
             SetProcessing(true);
             StatusText.Text = "현재 프레임 캡처 중...";
-            var imageBytes = await CaptureFrameAsync(targetWidth, targetHeight);
+            var imageBytes = await CaptureFrameAsync(targetWidth, targetHeight, true);
             await File.WriteAllBytesAsync(dialog.FileName, imageBytes);
             StatusText.Text = $"캡처 저장 완료: {targetWidth} × {targetHeight}";
         }
@@ -206,7 +206,7 @@ public partial class MainWindow : Window
         {
             SetProcessing(true);
             StatusText.Text = "AI용 원본 프레임 캡처 중...";
-            var sourceBytes = await CaptureFrameAsync(targetWidth, targetHeight);
+            var sourceBytes = await CaptureFrameAsync(targetWidth, targetHeight, false);
 
             var resolution = Math.Max(targetWidth, targetHeight) >= 3000 ? "4K" : "2K";
             var aspectRatio = GetAspectRatio(targetWidth, targetHeight);
@@ -220,7 +220,7 @@ public partial class MainWindow : Window
                 resolution,
                 aspectRatio);
 
-            var normalizedResult = NormalizeImageToPng(resultBytes, targetWidth, targetHeight);
+            var normalizedResult = NormalizeImageToPng(resultBytes, targetWidth, targetHeight, true);
             StatusText.Text = $"AI 이미지 향상 완료: {targetWidth} × {targetHeight}";
 
             var resultWindow = new ResultWindow(sourceBytes, normalizedResult) { Owner = this };
@@ -236,7 +236,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<byte[]> CaptureFrameAsync(int targetWidth, int targetHeight)
+    private async Task<byte[]> CaptureFrameAsync(int targetWidth, int targetHeight, bool resizeToTarget)
     {
         MapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "setFrameVisible", visible = false }));
         try
@@ -244,7 +244,7 @@ public partial class MainWindow : Window
             await Task.Delay(80);
             using var stream = new MemoryStream();
             await MapWebView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
-            return NormalizeImageToPng(stream.ToArray(), targetWidth, targetHeight);
+            return NormalizeImageToPng(stream.ToArray(), targetWidth, targetHeight, resizeToTarget);
         }
         finally
         {
@@ -252,7 +252,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private static byte[] NormalizeImageToPng(byte[] sourceBytes, int targetWidth, int targetHeight)
+    private static byte[] NormalizeImageToPng(byte[] sourceBytes, int targetWidth, int targetHeight, bool resizeToTarget)
     {
         using var input = new MemoryStream(sourceBytes);
         var decoder = BitmapDecoder.Create(input, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
@@ -278,7 +278,7 @@ public partial class MainWindow : Window
         var y = Math.Max(0, (source.PixelHeight - cropHeight) / 2);
         source = new CroppedBitmap(source, new Int32Rect(x, y, cropWidth, cropHeight));
 
-        if (source.PixelWidth != targetWidth || source.PixelHeight != targetHeight)
+        if (resizeToTarget && (source.PixelWidth != targetWidth || source.PixelHeight != targetHeight))
         {
             source = new TransformedBitmap(source, new ScaleTransform(
                 (double)targetWidth / source.PixelWidth,
