@@ -56,6 +56,11 @@
       document.head.appendChild(script);
     }
 
+    function ensureClient() {
+      if (!roadviewClient) roadviewClient = new kakao.maps.RoadviewClient();
+      return roadviewClient;
+    }
+
     function bearingDegrees(fromLat, fromLng, toLat, toLng) {
       const d2r = Math.PI / 180;
       const p1 = fromLat * d2r;
@@ -66,51 +71,71 @@
       return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
 
-    function prepare(cmd) {
+    function probe(cmd) {
+      if (!apiKey) {
+        post({ type:'panoProbeResult', requestId:cmd.requestId, panoId:0 });
+        return;
+      }
+
+      ensureKakaoSdk(() => {
+        try {
+          const client = ensureClient();
+          const searchPosition = new kakao.maps.LatLng(Number(cmd.searchLat), Number(cmd.searchLng));
+          client.getNearestPanoId(searchPosition, Number(cmd.radius || 100), panoId => {
+            post({
+              type:'panoProbeResult',
+              requestId:cmd.requestId,
+              panoId:Number(panoId || 0)
+            });
+          });
+        } catch (error) {
+          post({ type:'panoProbeResult', requestId:cmd.requestId, panoId:0, message:error?.message || String(error) });
+        }
+      });
+    }
+
+    function render(cmd) {
       if (!apiKey) {
         post({ type:'roadviewError', requestId:cmd.requestId, message:'Kakao JavaScript Key가 설정되지 않았습니다.' });
         return;
       }
 
-      message('카카오 로드뷰 검색 중...');
+      message('카카오 로드뷰 렌더링 중...');
       ensureKakaoSdk(() => {
         try {
           const container = document.getElementById('roadview');
           if (!roadview) roadview = new kakao.maps.Roadview(container, { pan:0, tilt:0, zoom:0 });
-          if (!roadviewClient) roadviewClient = new kakao.maps.RoadviewClient();
           roadview.relayout();
 
           const searchPosition = new kakao.maps.LatLng(Number(cmd.searchLat), Number(cmd.searchLng));
-          roadviewClient.getNearestPanoId(searchPosition, Number(cmd.radius || 100), panoId => {
-            if (!panoId) {
-              message('주변 로드뷰 없음');
-              post({ type:'roadviewNotFound', requestId:cmd.requestId });
-              return;
+          const panoId = Number(cmd.panoId || 0);
+          if (!panoId) {
+            post({ type:'roadviewNotFound', requestId:cmd.requestId });
+            return;
+          }
+
+          const onInit = () => {
+            try {
+              kakao.maps.event.removeListener(roadview, 'init', onInit);
+              const pos = roadview.getPosition();
+              const pan = bearingDegrees(pos.getLat(), pos.getLng(), Number(cmd.targetLat), Number(cmd.targetLng));
+              roadview.setViewpoint(new kakao.maps.Viewpoint(pan, Number(cmd.tilt || 0), Number(cmd.zoom || 0)));
+              message('');
+              setTimeout(() => post({
+                type:'roadviewReady',
+                requestId:cmd.requestId,
+                panoId,
+                pan,
+                lat:pos.getLat(),
+                lng:pos.getLng()
+              }), 450);
+            } catch (error) {
+              post({ type:'roadviewError', requestId:cmd.requestId, message:error?.message || String(error) });
             }
+          };
 
-            const onInit = () => {
-              try {
-                kakao.maps.event.removeListener(roadview, 'init', onInit);
-                const pos = roadview.getPosition();
-                const pan = bearingDegrees(pos.getLat(), pos.getLng(), Number(cmd.targetLat), Number(cmd.targetLng));
-                roadview.setViewpoint(new kakao.maps.Viewpoint(pan, Number(cmd.tilt || 0), Number(cmd.zoom || 0)));
-                message('');
-                setTimeout(() => post({
-                  type:'roadviewReady',
-                  requestId:cmd.requestId,
-                  panoId,
-                  pan,
-                  lat:pos.getLat(),
-                  lng:pos.getLng()
-                }), 700);
-              } catch (error) {
-                post({ type:'roadviewError', requestId:cmd.requestId, message:error?.message || String(error) });
-              }
-            };
-
-            kakao.maps.event.addListener(roadview, 'init', onInit);
-            roadview.setPanoId(panoId, searchPosition);
-          });
+          kakao.maps.event.addListener(roadview, 'init', onInit);
+          roadview.setPanoId(panoId, searchPosition);
         } catch (error) {
           post({ type:'roadviewError', requestId:cmd.requestId, message:error?.message || String(error) });
         }
@@ -123,8 +148,10 @@
       if (cmd.type === 'initializeRoadview') {
         apiKey = cmd.kakaoJavaScriptKey || '';
         post({ type:'roadviewHostReady', origin:currentOrigin() });
-      } else if (cmd.type === 'prepareRoadview') {
-        prepare(cmd);
+      } else if (cmd.type === 'probeRoadview') {
+        probe(cmd);
+      } else if (cmd.type === 'renderRoadview') {
+        render(cmd);
       }
     });
 
