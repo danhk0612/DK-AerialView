@@ -11,7 +11,7 @@
             <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <TextBox x:Name="AddressBox" Height="34" VerticalContentAlignment="Center" Margin="0,0,8,0"
-                         ToolTip="주소를 입력하세요" KeyDown="AddressBox_KeyDown"/>
+                         ToolTip="주소, 건물명, 역명, 장소명을 입력하세요" KeyDown="AddressBox_KeyDown"/>
                 <Button Grid.Column="1" Width="80" Height="34" Content="검색" Click="Search_Click"/>
                 <Button Grid.Column="2" Width="80" Height="34" Margin="8,0,0,0" Content="설정" Click="Settings_Click"/>
             </Grid>
