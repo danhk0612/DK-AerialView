@@ -2,8 +2,10 @@ namespace DKAerialView.Models;
 
 public sealed class RoadviewCollectionProgress
 {
+    public string Phase { get; init; } = string.Empty;
     public int AttemptIndex { get; init; }
     public int TotalAttempts { get; init; }
+    public int CandidateCount { get; init; }
     public int SuccessCount { get; init; }
     public int DuplicateCount { get; init; }
     public int FailureCount { get; init; }
