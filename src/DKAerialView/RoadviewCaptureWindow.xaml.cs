@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using DKAerialView.Models;
 using Microsoft.Web.WebView2.Core;
 
 namespace DKAerialView;
@@ -94,7 +95,7 @@ public partial class RoadviewCaptureWindow : Window
         await _hostReady.Task;
     }
 
-    public async Task<byte[]?> CaptureReferenceAsync(
+    public async Task<RoadviewCaptureResult?> CaptureReferenceAsync(
         double targetLat,
         double targetLng,
         double searchLat,
@@ -129,18 +130,21 @@ public partial class RoadviewCaptureWindow : Window
             var completed = await Task.WhenAny(tcs.Task, delayTask);
             cancellationToken.ThrowIfCancellationRequested();
 
-            // A missing/slow pano is not fatal to the whole collection. Skip this direction.
             if (completed != tcs.Task)
                 return null;
 
             var ready = await tcs.Task;
             if (!ready.Found || !string.IsNullOrWhiteSpace(ready.Error)) return null;
 
-            // Give Kakao tiles a little extra time after viewpoint adjustment.
             await Task.Delay(500, cancellationToken);
             using var stream = new MemoryStream();
             await RoadviewWebView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
-            return stream.ToArray();
+            return new RoadviewCaptureResult(
+                ready.PanoId,
+                ready.Latitude,
+                ready.Longitude,
+                ready.Pan,
+                stream.ToArray());
         }
         finally
         {
