@@ -45,13 +45,13 @@ public partial class RoadviewReviewWindow : Window
 
             _collectionCompleted = true;
             CollectionStatusText.Text = collected.Count > 0
-                ? $"수집 완료 · 서로 다른 로드뷰 {collected.Count}장 확보"
+                ? $"수집 완료 · 실제 로드뷰 {collected.Count}장 확보"
                 : "수집 완료 · 사용할 수 있는 로드뷰를 찾지 못했습니다.";
             ProgressDetailText.Text = collected.Count > 0
                 ? "이미지를 확인한 뒤 사용할 항목만 체크하고 생성하세요."
                 : "항공사진만 진행하거나 취소할 수 있습니다.";
             CollectionProgressBar.Value = CollectionProgressBar.Maximum;
-            AddLog($"[완료] 로드뷰 {collected.Count}장 확보");
+            AddLog($"[완료] 실제 로드뷰 {collected.Count}장 확보");
             UpdateSelectionText();
         }
         catch (OperationCanceledException)
@@ -90,12 +90,13 @@ public partial class RoadviewReviewWindow : Window
             CollectionProgressBar.Value = 0;
         }
 
+        var phase = string.IsNullOrWhiteSpace(progress.Phase) ? "수집" : progress.Phase;
         CollectionStatusText.Text = progress.IsCompleted
             ? "카카오 로드뷰 수집 완료"
-            : $"수집 중 · {progress.CurrentCandidate}";
-        CounterText.Text = $"성공 {progress.SuccessCount} · 중복 {progress.DuplicateCount} · 실패 {progress.FailureCount}";
+            : $"{phase} 중 · {progress.CurrentCandidate}";
+        CounterText.Text = $"고유 후보 {progress.CandidateCount} · 캡처 {progress.SuccessCount} · 중복 {progress.DuplicateCount} · 실패 {progress.FailureCount}";
         ProgressDetailText.Text = progress.TotalAttempts > 0
-            ? $"후보 {progress.AttemptIndex}/{progress.TotalAttempts} · {progress.Message}"
+            ? $"진행 {progress.AttemptIndex}/{progress.TotalAttempts} · {progress.Message}"
             : progress.Message;
 
         if (!string.IsNullOrWhiteSpace(progress.Message))
@@ -169,7 +170,7 @@ public partial class RoadviewReviewWindow : Window
         if (string.IsNullOrWhiteSpace(message)) return;
 
         LogList.Items.Add($"{DateTime.Now:HH:mm:ss}  {message}");
-        while (LogList.Items.Count > 40)
+        while (LogList.Items.Count > 60)
             LogList.Items.RemoveAt(0);
 
         if (LogList.Items.Count > 0)
@@ -202,7 +203,7 @@ public partial class RoadviewReviewWindow : Window
 
         var selectedCount = _items.Count(item => item.IsSelected);
         var suffix = _collectionCompleted ? " · 수집 완료" : " · 수집 진행 중";
-        SelectionText.Text = $"로드뷰 {_items.Count}장 수집 · {selectedCount}장 선택{suffix}";
+        SelectionText.Text = $"로드뷰 {_items.Count}장 확보 · {selectedCount}장 선택{suffix}";
         ConfirmButton.IsEnabled = selectedCount > 0;
     }
 
