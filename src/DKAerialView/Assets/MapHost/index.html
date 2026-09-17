@@ -40,6 +40,60 @@
       z-index:10;
       display:none;
     }
+    #searchResults {
+      position:absolute;
+      top:12px;
+      left:12px;
+      width:min(430px, calc(100% - 24px));
+      max-height:min(520px, calc(100% - 24px));
+      display:none;
+      z-index:40;
+      overflow:hidden;
+      background:rgba(255,255,255,.98);
+      border:1px solid rgba(0,0,0,.18);
+      border-radius:8px;
+      box-shadow:0 8px 28px rgba(0,0,0,.24);
+      font:13px/1.45 sans-serif;
+      color:#222;
+    }
+    #searchResultsHeader {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      padding:10px 12px;
+      border-bottom:1px solid #e2e2e2;
+      font-weight:600;
+    }
+    #searchResultsClose {
+      border:0;
+      background:transparent;
+      cursor:pointer;
+      font-size:18px;
+      line-height:1;
+      padding:2px 5px;
+      color:#666;
+    }
+    #searchResultsList {
+      max-height:450px;
+      overflow:auto;
+    }
+    .search-result {
+      display:block;
+      width:100%;
+      border:0;
+      border-bottom:1px solid #eee;
+      background:#fff;
+      text-align:left;
+      padding:10px 12px;
+      cursor:pointer;
+      color:inherit;
+    }
+    .search-result:last-child { border-bottom:0; }
+    .search-result:hover, .search-result:focus { background:#f2f6ff; outline:none; }
+    .search-result-name { font-size:14px; font-weight:600; margin-bottom:2px; }
+    .search-result-category { color:#777; font-size:12px; margin-bottom:3px; }
+    .search-result-address { color:#555; font-size:12px; }
   </style>
 </head>
 <body>
@@ -48,11 +102,19 @@
     <div id="interaction" title="왼쪽 드래그: 이동 / 휠: 미세 줌 / 오른쪽 드래그: 회전"></div>
     <div id="frame"></div>
     <div id="message">Kakao SkyView 초기화 대기 중</div>
+    <div id="searchResults">
+      <div id="searchResultsHeader">
+        <span id="searchResultsTitle">검색 결과</span>
+        <button id="searchResultsClose" type="button" aria-label="검색 결과 닫기">×</button>
+      </div>
+      <div id="searchResultsList"></div>
+    </div>
   </div>
 
   <script>
     let map = null;
     let geocoder = null;
+    let places = null;
     let apiKey = '';
     let suppressCameraMessage = false;
     let frameWidth = 16;
@@ -239,6 +301,7 @@
           map.setDraggable(false);
           map.setZoomable(false);
           geocoder = new kakao.maps.services.Geocoder();
+          places = new kakao.maps.services.Places(map);
           currentNativeZoom = 18;
           displayZoom = 18.0;
           currentHeading = 0.0;
@@ -254,7 +317,7 @@
           post({
             type:'ready',
             provider:'kakao',
-            capabilities:{ zoom:true, heading:true, geocode:true, satellite:true },
+            capabilities:{ zoom:true, heading:true, geocode:true, placeSearch:true, satellite:true },
             origin:currentOrigin()
           });
           emitCamera();
@@ -288,22 +351,107 @@
       }, 80);
     }
 
-    function searchAddress(address) {
-      if (!map || !geocoder || !address) return;
-      geocoder.addressSearch(address, (result, status) => {
+    function hideSearchResults() {
+      const panel = document.getElementById('searchResults');
+      const list = document.getElementById('searchResultsList');
+      panel.style.display = 'none';
+      list.replaceChildren();
+    }
+
+    function resolvePlace(place, originalQuery) {
+      const lat = Number(place.y);
+      const lng = Number(place.x);
+      const address = place.road_address_name || place.address_name || '';
+      hideSearchResults();
+      setCenter(lat, lng);
+      post({
+        type:'geocodeResult',
+        lat,
+        lng,
+        formattedAddress:address ? `${place.place_name} · ${address}` : place.place_name || originalQuery,
+        placeName:place.place_name || '',
+        searchKind:'place'
+      });
+    }
+
+    function showSearchResults(query, results) {
+      const panel = document.getElementById('searchResults');
+      const title = document.getElementById('searchResultsTitle');
+      const list = document.getElementById('searchResultsList');
+      list.replaceChildren();
+      title.textContent = `'${query}' 검색 결과 ${Math.min(results.length, 10)}건`;
+
+      results.slice(0, 10).forEach(place => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'search-result';
+
+        const name = document.createElement('div');
+        name.className = 'search-result-name';
+        name.textContent = place.place_name || '(이름 없음)';
+
+        const category = document.createElement('div');
+        category.className = 'search-result-category';
+        category.textContent = place.category_name || '';
+
+        const address = document.createElement('div');
+        address.className = 'search-result-address';
+        address.textContent = place.road_address_name || place.address_name || '';
+
+        button.append(name, category, address);
+        button.addEventListener('click', () => resolvePlace(place, query));
+        list.appendChild(button);
+      });
+
+      panel.style.display = 'block';
+    }
+
+    function searchPlace(query) {
+      if (!places) {
+        post({ type:'diagnostic', message:'장소 검색 서비스를 아직 사용할 수 없습니다.' });
+        return;
+      }
+
+      const center = map.getCenter();
+      places.keywordSearch(query, (result, status) => {
         if (status !== kakao.maps.services.Status.OK || !result || !result.length) {
-          post({ type:'error', message:'주소 검색 실패 또는 검색 결과가 없습니다.' });
+          hideSearchResults();
+          post({ type:'diagnostic', message:`'${query}' 검색 결과가 없습니다.` });
           return;
         }
-        const lat = Number(result[0].y);
-        const lng = Number(result[0].x);
-        setCenter(lat, lng);
-        post({
-          type:'geocodeResult',
-          lat,
-          lng,
-          formattedAddress:result[0].road_address?.address_name || result[0].address_name || address
-        });
+
+        if (result.length === 1) {
+          resolvePlace(result[0], query);
+          return;
+        }
+
+        showSearchResults(query, result);
+        post({ type:'diagnostic', message:`'${query}' 장소 검색 결과 ${result.length}건 · 지도에서 선택하세요.` });
+      }, { location:center });
+    }
+
+    function searchAddress(query) {
+      if (!map || !geocoder || !query) return;
+      const normalizedQuery = String(query).trim();
+      if (!normalizedQuery) return;
+
+      hideSearchResults();
+      geocoder.addressSearch(normalizedQuery, (result, status) => {
+        if (status === kakao.maps.services.Status.OK && result && result.length) {
+          const lat = Number(result[0].y);
+          const lng = Number(result[0].x);
+          setCenter(lat, lng);
+          post({
+            type:'geocodeResult',
+            lat,
+            lng,
+            formattedAddress:result[0].road_address?.address_name || result[0].address_name || normalizedQuery,
+            searchKind:'address'
+          });
+          return;
+        }
+
+        searchPlace(normalizedQuery);
       });
     }
 
@@ -343,6 +491,8 @@
         heading:Number(currentHeading)
       };
     };
+
+    document.getElementById('searchResultsClose').addEventListener('click', hideSearchResults);
 
     window.addEventListener('resize', () => {
       resizeFrame();
