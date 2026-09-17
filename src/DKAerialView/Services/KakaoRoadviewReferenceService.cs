@@ -7,6 +7,7 @@ public sealed class KakaoRoadviewReferenceService
 {
     private const double EarthRadiusMeters = 6378137.0;
     private const int MaxReferences = 4;
+    private const int ProbeConcurrency = 4;
 
     public async Task<IReadOnlyList<RoadviewReferenceItem>> CollectAsync(
         Window owner,
@@ -21,21 +22,28 @@ public sealed class KakaoRoadviewReferenceService
             return Array.Empty<RoadviewReferenceItem>();
 
         var references = new List<RoadviewReferenceItem>();
-        var seenPanoIds = new HashSet<long>();
+        var candidates = new Dictionary<long, ProbeCandidate>();
         var bearings = new[] { 0d, 45d, 90d, 135d, 180d, 225d, 270d, 315d };
         var distances = BuildSearchDistances(options.RoadviewDistanceMeters);
-        var totalAttempts = distances.Count * bearings.Length;
-        var attemptIndex = 0;
         var duplicateCount = 0;
         var failureCount = 0;
         var captureWindow = new RoadviewCaptureWindow(kakaoJavaScriptKey);
 
-        void Report(string currentCandidate, string message, RoadviewReferenceItem? added = null, bool completed = false)
+        void Report(
+            string phase,
+            int attemptIndex,
+            int totalAttempts,
+            string currentCandidate,
+            string message,
+            RoadviewReferenceItem? added = null,
+            bool completed = false)
         {
             progress?.Report(new RoadviewCollectionProgress
             {
+                Phase = phase,
                 AttemptIndex = attemptIndex,
                 TotalAttempts = totalAttempts,
+                CandidateCount = candidates.Count,
                 SuccessCount = references.Count,
                 DuplicateCount = duplicateCount,
                 FailureCount = failureCount,
@@ -48,103 +56,262 @@ public sealed class KakaoRoadviewReferenceService
 
         try
         {
-            Report("초기화", "카카오 로드뷰 호스트를 초기화하는 중입니다...");
+            Report("초기화", 0, 1, "초기화", "카카오 로드뷰 호스트를 초기화하는 중입니다...");
             await captureWindow.InitializeAsync(cancellationToken);
-            Report("초기화 완료", "카카오 로드뷰 호스트 준비가 완료되었습니다.");
+            Report("초기화", 1, 1, "초기화 완료", "카카오 로드뷰 호스트 준비가 완료되었습니다.");
+
+            using var probeGate = new SemaphoreSlim(ProbeConcurrency);
 
             foreach (var distance in distances)
             {
-                foreach (var bearing in bearings)
+                cancellationToken.ThrowIfCancellationRequested();
+                Report(
+                    "탐색",
+                    0,
+                    bearings.Length,
+                    $"{distance}m 단계",
+                    $"{distance}m 거리의 8방향에서 panoId만 빠르게 탐색합니다. (동시 최대 {ProbeConcurrency}개)");
+
+                async Task<ProbeOutcome> ProbeAsync(double bearing)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (references.Count >= MaxReferences)
-                    {
-                        Report("완료", $"서로 다른 로드뷰 {references.Count}장을 확보해 수집을 종료합니다.", completed: true);
-                        return references;
-                    }
-
-                    attemptIndex++;
-                    var candidateLabel = $"{DirectionLabel(bearing)} {distance}m";
-                    Report(candidateLabel, $"[{attemptIndex}/{totalAttempts}] {candidateLabel} 후보를 탐색 중입니다. 응답이 느리면 수 초 걸릴 수 있습니다.");
-
-                    var (searchLat, searchLng) = Offset(
-                        targetLatitude,
-                        targetLongitude,
-                        distance,
-                        bearing);
-
+                    await probeGate.WaitAsync(cancellationToken);
                     try
                     {
-                        var capture = await captureWindow.CaptureReferenceAsync(
+                        var (searchLat, searchLng) = Offset(
                             targetLatitude,
                             targetLongitude,
-                            searchLat,
-                            searchLng,
-                            options.RoadviewSearchRadiusMeters,
-                            options.RoadviewTilt,
-                            options.RoadviewZoom,
-                            cancellationToken);
-
-                        if (capture is null || capture.ImageBytes.Length == 0)
+                            distance,
+                            bearing);
+                        try
                         {
-                            failureCount++;
-                            Report(candidateLabel, $"[실패] {candidateLabel}: 사용 가능한 로드뷰를 찾지 못했습니다.");
-                            continue;
+                            var panoId = await captureWindow.ProbeNearestPanoIdAsync(
+                                searchLat,
+                                searchLng,
+                                options.RoadviewSearchRadiusMeters,
+                                cancellationToken);
+                            return new ProbeOutcome(
+                                bearing,
+                                distance,
+                                searchLat,
+                                searchLng,
+                                panoId,
+                                null);
                         }
-
-                        if (capture.PanoId != 0 && !seenPanoIds.Add(capture.PanoId))
+                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                         {
-                            duplicateCount++;
-                            Report(candidateLabel, $"[중복] {candidateLabel}: 이미 확보한 촬영점과 같은 pano라 건너뜁니다.");
-                            continue;
+                            return new ProbeOutcome(bearing, distance, searchLat, searchLng, null, "시간 초과");
                         }
-
-                        var actualBearing = InitialBearingDegrees(
-                            targetLatitude,
-                            targetLongitude,
-                            capture.Latitude,
-                            capture.Longitude);
-                        var actualDistance = (int)Math.Round(DistanceMeters(
-                            targetLatitude,
-                            targetLongitude,
-                            capture.Latitude,
-                            capture.Longitude));
-
-                        var item = new RoadviewReferenceItem
+                        catch (Exception ex)
                         {
-                            Direction = DirectionLabel(actualBearing),
-                            BearingDegrees = actualBearing,
-                            RequestedDistanceMeters = distance,
-                            ActualDistanceMeters = actualDistance,
-                            PanoId = capture.PanoId,
-                            Latitude = capture.Latitude,
-                            Longitude = capture.Longitude,
-                            ImageBytes = capture.ImageBytes,
-                            IsSelected = true
-                        };
+                            return new ProbeOutcome(bearing, distance, searchLat, searchLng, null, ex.Message);
+                        }
+                    }
+                    finally
+                    {
+                        probeGate.Release();
+                    }
+                }
 
-                        references.Add(item);
-                        Report(candidateLabel, $"[성공] {item.DisplayLabel} 로드뷰를 확보했습니다.", item);
-                    }
-                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                var pending = bearings.Select(ProbeAsync).ToList();
+                var stageCompleted = 0;
+
+                while (pending.Count > 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var completedTask = await Task.WhenAny(pending);
+                    pending.Remove(completedTask);
+                    var outcome = await completedTask;
+                    stageCompleted++;
+
+                    var label = $"{DirectionLabel(outcome.Bearing)} {outcome.DistanceMeters}m";
+                    if (!string.IsNullOrWhiteSpace(outcome.Error))
                     {
                         failureCount++;
-                        Report(candidateLabel, $"[시간 초과] {candidateLabel}: 응답이 없어 건너뜁니다.");
+                        Report(
+                            "탐색",
+                            stageCompleted,
+                            bearings.Length,
+                            label,
+                            $"[실패] {label}: {outcome.Error}");
+                        continue;
                     }
-                    catch (TimeoutException)
+
+                    if (outcome.PanoId is null or 0)
                     {
                         failureCount++;
-                        Report(candidateLabel, $"[시간 초과] {candidateLabel}: 응답이 없어 건너뜁니다.");
+                        Report(
+                            "탐색",
+                            stageCompleted,
+                            bearings.Length,
+                            label,
+                            $"[없음] {label}: 검색 반경 안에 pano가 없습니다.");
+                        continue;
                     }
-                    catch (Exception ex)
+
+                    if (candidates.ContainsKey(outcome.PanoId.Value))
+                    {
+                        duplicateCount++;
+                        Report(
+                            "탐색",
+                            stageCompleted,
+                            bearings.Length,
+                            label,
+                            $"[중복] {label}: pano {outcome.PanoId.Value}는 이미 후보에 있습니다.");
+                        continue;
+                    }
+
+                    candidates.Add(
+                        outcome.PanoId.Value,
+                        new ProbeCandidate(
+                            outcome.PanoId.Value,
+                            outcome.SearchLatitude,
+                            outcome.SearchLongitude,
+                            outcome.Bearing,
+                            outcome.DistanceMeters));
+
+                    Report(
+                        "탐색",
+                        stageCompleted,
+                        bearings.Length,
+                        label,
+                        $"[후보] {label}: 고유 pano 후보 {candidates.Count}개 확보.");
+                }
+
+                if (candidates.Count >= MaxReferences)
+                {
+                    Report(
+                        "탐색",
+                        bearings.Length,
+                        bearings.Length,
+                        $"{distance}m 단계 완료",
+                        $"고유 pano 후보 {candidates.Count}개를 확보해 추가 거리 탐색을 생략합니다.");
+                    break;
+                }
+
+                Report(
+                    "탐색",
+                    bearings.Length,
+                    bearings.Length,
+                    $"{distance}m 단계 완료",
+                    $"고유 pano가 {candidates.Count}개뿐이라 다음 거리 단계로 탐색 범위를 확장합니다.");
+            }
+
+            if (candidates.Count == 0)
+            {
+                Report("완료", 1, 1, "완료", "사용 가능한 고유 pano 후보를 찾지 못했습니다.", completed: true);
+                return references;
+            }
+
+            var captureOrder = RankCandidates(candidates.Values, options.RoadviewDistanceMeters);
+            Report(
+                "캡처",
+                0,
+                captureOrder.Count,
+                "캡처 준비",
+                $"고유 pano 후보 {candidates.Count}개 중 방향 분산이 좋은 후보부터 실제 로드뷰를 렌더링합니다.");
+
+            var captureAttempt = 0;
+            foreach (var candidate in captureOrder)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (references.Count >= MaxReferences)
+                    break;
+
+                captureAttempt++;
+                var candidateLabel = $"{DirectionLabel(candidate.BearingDegrees)} {candidate.RequestedDistanceMeters}m";
+                Report(
+                    "캡처",
+                    captureAttempt,
+                    captureOrder.Count,
+                    candidateLabel,
+                    $"[캡처] pano {candidate.PanoId}를 렌더링하고 대상 중심 방향으로 시점을 맞추는 중입니다.");
+
+                try
+                {
+                    var capture = await captureWindow.CapturePanoAsync(
+                        candidate.PanoId,
+                        targetLatitude,
+                        targetLongitude,
+                        candidate.SearchLatitude,
+                        candidate.SearchLongitude,
+                        options.RoadviewTilt,
+                        options.RoadviewZoom,
+                        cancellationToken);
+
+                    if (capture is null || capture.ImageBytes.Length == 0)
                     {
                         failureCount++;
-                        Report(candidateLabel, $"[오류] {candidateLabel}: {ex.Message}");
+                        Report(
+                            "캡처",
+                            captureAttempt,
+                            captureOrder.Count,
+                            candidateLabel,
+                            $"[캡처 실패] pano {candidate.PanoId}: 다음 후보를 시도합니다.");
+                        continue;
                     }
+
+                    var actualBearing = InitialBearingDegrees(
+                        targetLatitude,
+                        targetLongitude,
+                        capture.Latitude,
+                        capture.Longitude);
+                    var actualDistance = (int)Math.Round(DistanceMeters(
+                        targetLatitude,
+                        targetLongitude,
+                        capture.Latitude,
+                        capture.Longitude));
+
+                    var item = new RoadviewReferenceItem
+                    {
+                        Direction = DirectionLabel(actualBearing),
+                        BearingDegrees = actualBearing,
+                        RequestedDistanceMeters = candidate.RequestedDistanceMeters,
+                        ActualDistanceMeters = actualDistance,
+                        PanoId = capture.PanoId,
+                        Latitude = capture.Latitude,
+                        Longitude = capture.Longitude,
+                        ImageBytes = capture.ImageBytes,
+                        IsSelected = true
+                    };
+
+                    references.Add(item);
+                    Report(
+                        "캡처",
+                        captureAttempt,
+                        captureOrder.Count,
+                        candidateLabel,
+                        $"[성공] {item.DisplayLabel} 로드뷰를 확보했습니다.",
+                        item);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    failureCount++;
+                    Report(
+                        "캡처",
+                        captureAttempt,
+                        captureOrder.Count,
+                        candidateLabel,
+                        $"[시간 초과] pano {candidate.PanoId}: 다음 후보를 시도합니다.");
+                }
+                catch (Exception ex)
+                {
+                    failureCount++;
+                    Report(
+                        "캡처",
+                        captureAttempt,
+                        captureOrder.Count,
+                        candidateLabel,
+                        $"[오류] pano {candidate.PanoId}: {ex.Message}");
                 }
             }
 
-            Report("완료", $"로드뷰 수집 완료: {references.Count}장 확보했습니다.", completed: true);
+            Report(
+                "완료",
+                1,
+                1,
+                "완료",
+                $"로드뷰 수집 완료: 고유 후보 {candidates.Count}개 탐색, 실제 이미지 {references.Count}장 확보.",
+                completed: true);
         }
         finally
         {
@@ -152,6 +319,39 @@ public sealed class KakaoRoadviewReferenceService
         }
 
         return references;
+    }
+
+    private static IReadOnlyList<ProbeCandidate> RankCandidates(
+        IEnumerable<ProbeCandidate> source,
+        int preferredDistance)
+    {
+        var remaining = source
+            .OrderBy(candidate => Math.Abs(candidate.RequestedDistanceMeters - preferredDistance))
+            .ThenBy(candidate => candidate.RequestedDistanceMeters)
+            .ToList();
+        var ranked = new List<ProbeCandidate>();
+
+        foreach (var targetBearing in new[] { 0d, 90d, 180d, 270d })
+        {
+            if (remaining.Count == 0) break;
+            var best = remaining
+                .OrderBy(candidate => AngularDistance(candidate.BearingDegrees, targetBearing))
+                .ThenBy(candidate => Math.Abs(candidate.RequestedDistanceMeters - preferredDistance))
+                .First();
+            ranked.Add(best);
+            remaining.Remove(best);
+        }
+
+        ranked.AddRange(remaining
+            .OrderBy(candidate => Math.Abs(candidate.RequestedDistanceMeters - preferredDistance))
+            .ThenBy(candidate => candidate.BearingDegrees));
+        return ranked;
+    }
+
+    private static double AngularDistance(double left, double right)
+    {
+        var difference = Math.Abs((((left - right) % 360) + 360) % 360);
+        return Math.Min(difference, 360 - difference);
     }
 
     private static IReadOnlyList<int> BuildSearchDistances(int preferredDistance)
@@ -205,7 +405,11 @@ public sealed class KakaoRoadviewReferenceService
         return (degrees + 360) % 360;
     }
 
-    private static (double Latitude, double Longitude) Offset(double latitude, double longitude, double distanceMeters, double bearingDegrees)
+    private static (double Latitude, double Longitude) Offset(
+        double latitude,
+        double longitude,
+        double distanceMeters,
+        double bearingDegrees)
     {
         var angularDistance = distanceMeters / EarthRadiusMeters;
         var bearing = DegreesToRadians(bearingDegrees);
@@ -225,4 +429,19 @@ public sealed class KakaoRoadviewReferenceService
 
     private static double DegreesToRadians(double value) => value * Math.PI / 180.0;
     private static double RadiansToDegrees(double value) => value * 180.0 / Math.PI;
+
+    private sealed record ProbeOutcome(
+        double Bearing,
+        int DistanceMeters,
+        double SearchLatitude,
+        double SearchLongitude,
+        long? PanoId,
+        string? Error);
+
+    private sealed record ProbeCandidate(
+        long PanoId,
+        double SearchLatitude,
+        double SearchLongitude,
+        double BearingDegrees,
+        int RequestedDistanceMeters);
 }
