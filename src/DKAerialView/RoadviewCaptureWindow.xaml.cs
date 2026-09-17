@@ -10,7 +10,8 @@ public partial class RoadviewCaptureWindow : Window
 {
     private const string HostName = "app.dk-aerialview.local";
     private readonly string _kakaoJavaScriptKey;
-    private readonly Dictionary<string, TaskCompletionSource<RoadviewReadyMessage>> _pending = new();
+    private readonly Dictionary<string, TaskCompletionSource<long?>> _probePending = new();
+    private readonly Dictionary<string, TaskCompletionSource<RoadviewReadyMessage>> _renderPending = new();
     private readonly TaskCompletionSource _hostReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public RoadviewCaptureWindow(string kakaoJavaScriptKey)
@@ -58,7 +59,22 @@ public partial class RoadviewCaptureWindow : Window
 
         if (!root.TryGetProperty("requestId", out var requestIdNode)) return;
         var requestId = requestIdNode.GetString();
-        if (string.IsNullOrWhiteSpace(requestId) || !_pending.TryGetValue(requestId, out var tcs)) return;
+        if (string.IsNullOrWhiteSpace(requestId)) return;
+
+        if (type == "panoProbeResult")
+        {
+            if (!_probePending.TryGetValue(requestId, out var probeTcs)) return;
+            var panoId = root.TryGetProperty("panoId", out var panoNode) ? panoNode.GetInt64() : 0;
+            probeTcs.TrySetResult(panoId == 0 ? null : panoId);
+            return;
+        }
+
+        if (!_renderPending.TryGetValue(requestId, out var renderTcs))
+        {
+            if (type == "roadviewError" && _probePending.TryGetValue(requestId, out var probeErrorTcs))
+                probeErrorTcs.TrySetResult(null);
+            return;
+        }
 
         if (type == "roadviewReady")
         {
@@ -66,18 +82,18 @@ public partial class RoadviewCaptureWindow : Window
             var pan = root.TryGetProperty("pan", out var panNode) ? panNode.GetDouble() : 0;
             var lat = root.TryGetProperty("lat", out var latNode) ? latNode.GetDouble() : 0;
             var lng = root.TryGetProperty("lng", out var lngNode) ? lngNode.GetDouble() : 0;
-            tcs.TrySetResult(new RoadviewReadyMessage(true, panoId, pan, lat, lng, null));
+            renderTcs.TrySetResult(new RoadviewReadyMessage(true, panoId, pan, lat, lng, null));
         }
         else if (type == "roadviewNotFound")
         {
-            tcs.TrySetResult(new RoadviewReadyMessage(false, 0, 0, 0, 0, null));
+            renderTcs.TrySetResult(new RoadviewReadyMessage(false, 0, 0, 0, 0, null));
         }
         else if (type == "roadviewError")
         {
             var message = root.TryGetProperty("message", out var messageNode)
                 ? messageNode.GetString()
                 : "Kakao Roadview 오류";
-            tcs.TrySetResult(new RoadviewReadyMessage(false, 0, 0, 0, 0, message));
+            renderTcs.TrySetResult(new RoadviewReadyMessage(false, 0, 0, 0, 0, message));
         }
     }
 
@@ -95,12 +111,47 @@ public partial class RoadviewCaptureWindow : Window
         await _hostReady.Task;
     }
 
-    public async Task<RoadviewCaptureResult?> CaptureReferenceAsync(
+    public async Task<long?> ProbeNearestPanoIdAsync(
+        double searchLat,
+        double searchLng,
+        int radiusMeters,
+        CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync(cancellationToken);
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<long?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _probePending[requestId] = tcs;
+
+        try
+        {
+            RoadviewWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+            {
+                type = "probeRoadview",
+                requestId,
+                searchLat,
+                searchLng,
+                radius = radiusMeters
+            }));
+
+            var delayTask = Task.Delay(TimeSpan.FromSeconds(6), cancellationToken);
+            var completed = await Task.WhenAny(tcs.Task, delayTask);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return completed == tcs.Task ? await tcs.Task : null;
+        }
+        finally
+        {
+            _probePending.Remove(requestId);
+        }
+    }
+
+    public async Task<RoadviewCaptureResult?> CapturePanoAsync(
+        long panoId,
         double targetLat,
         double targetLng,
         double searchLat,
         double searchLng,
-        int radiusMeters,
         int tilt,
         int zoom,
         CancellationToken cancellationToken = default)
@@ -109,24 +160,24 @@ public partial class RoadviewCaptureWindow : Window
 
         var requestId = Guid.NewGuid().ToString("N");
         var tcs = new TaskCompletionSource<RoadviewReadyMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pending[requestId] = tcs;
+        _renderPending[requestId] = tcs;
 
         try
         {
             RoadviewWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
             {
-                type = "prepareRoadview",
+                type = "renderRoadview",
                 requestId,
+                panoId,
                 targetLat,
                 targetLng,
                 searchLat,
                 searchLng,
-                radius = radiusMeters,
                 tilt,
                 zoom
             }));
 
-            var delayTask = Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
+            var delayTask = Task.Delay(TimeSpan.FromSeconds(12), cancellationToken);
             var completed = await Task.WhenAny(tcs.Task, delayTask);
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -136,7 +187,7 @@ public partial class RoadviewCaptureWindow : Window
             var ready = await tcs.Task;
             if (!ready.Found || !string.IsNullOrWhiteSpace(ready.Error)) return null;
 
-            await Task.Delay(500, cancellationToken);
+            await Task.Delay(300, cancellationToken);
             using var stream = new MemoryStream();
             await RoadviewWebView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
             return new RoadviewCaptureResult(
@@ -148,7 +199,7 @@ public partial class RoadviewCaptureWindow : Window
         }
         finally
         {
-            _pending.Remove(requestId);
+            _renderPending.Remove(requestId);
         }
     }
 
