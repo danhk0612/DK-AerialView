@@ -1,0 +1,43 @@
+<Window x:Class="DKAerialView.RoadviewReviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="카카오 로드뷰 참조 확인"
+        Width="1040" Height="760" MinWidth="820" MinHeight="620"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock FontSize="18" FontWeight="SemiBold"
+                   Text="AI 조감도 생성에 사용할 카카오 로드뷰를 확인하세요."/>
+        <TextBlock Grid.Row="1" Margin="0,6,0,12" Foreground="#666" TextWrapping="Wrap"
+                   Text="체크된 이미지만 OpenRouter 참조 이미지로 전달됩니다. 대상 건물이 잘 보이지 않거나 엉뚱한 방향의 이미지는 체크를 해제하세요."/>
+
+        <Border Grid.Row="2" BorderBrush="#DDD" BorderThickness="1" CornerRadius="4" Padding="8">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <UniformGrid x:Name="ItemsPanel" Rows="2" Columns="2"/>
+            </ScrollViewer>
+        </Border>
+
+        <Grid Grid.Row="3" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock x:Name="SelectionText" VerticalAlignment="Center" Foreground="#555"/>
+            <Button Grid.Column="1" Width="100" Height="34" Margin="6,0,0,0"
+                    Content="취소" Click="Cancel_Click"/>
+            <Button Grid.Column="2" Width="150" Height="34" Margin="6,0,0,0"
+                    Content="항공사진만 진행" Click="AerialOnly_Click"/>
+            <Button Grid.Column="3" Width="170" Height="34" Margin="6,0,0,0"
+                    Content="선택한 로드뷰로 생성" Click="Confirm_Click" IsDefault="True"/>
+        </Grid>
+    </Grid>
+</Window>
