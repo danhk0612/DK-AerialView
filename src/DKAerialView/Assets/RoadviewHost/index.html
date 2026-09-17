@@ -21,6 +21,7 @@
     const post = payload => window.chrome.webview.postMessage(payload);
     const message = text => document.getElementById('message').textContent = text || '';
     const currentOrigin = () => window.location.origin;
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
     function finishSdkLoad() {
       if (!window.kakao?.maps) {
@@ -94,6 +95,22 @@
       });
     }
 
+    async function waitForPano(targetPanoId, timeoutMs = 8000) {
+      const started = Date.now();
+      while (Date.now() - started < timeoutMs) {
+        try {
+          const currentPanoId = Number(roadview?.getPanoId?.() || 0);
+          const pos = roadview?.getPosition?.();
+          if (currentPanoId === Number(targetPanoId) && pos) {
+            return { panoId: currentPanoId, position: pos };
+          }
+        } catch (_) {
+        }
+        await sleep(100);
+      }
+      return null;
+    }
+
     function render(cmd) {
       if (!apiKey) {
         post({ type:'roadviewError', requestId:cmd.requestId, message:'Kakao JavaScript Key가 설정되지 않았습니다.' });
@@ -101,7 +118,7 @@
       }
 
       message('카카오 로드뷰 렌더링 중...');
-      ensureKakaoSdk(() => {
+      ensureKakaoSdk(async () => {
         try {
           const container = document.getElementById('roadview');
           if (!roadview) roadview = new kakao.maps.Roadview(container, { pan:0, tilt:0, zoom:0 });
@@ -114,28 +131,33 @@
             return;
           }
 
-          const onInit = () => {
-            try {
-              kakao.maps.event.removeListener(roadview, 'init', onInit);
-              const pos = roadview.getPosition();
-              const pan = bearingDegrees(pos.getLat(), pos.getLng(), Number(cmd.targetLat), Number(cmd.targetLng));
-              roadview.setViewpoint(new kakao.maps.Viewpoint(pan, Number(cmd.tilt || 0), Number(cmd.zoom || 0)));
-              message('');
-              setTimeout(() => post({
-                type:'roadviewReady',
-                requestId:cmd.requestId,
-                panoId,
-                pan,
-                lat:pos.getLat(),
-                lng:pos.getLng()
-              }), 450);
-            } catch (error) {
-              post({ type:'roadviewError', requestId:cmd.requestId, message:error?.message || String(error) });
-            }
-          };
-
-          kakao.maps.event.addListener(roadview, 'init', onInit);
           roadview.setPanoId(panoId, searchPosition);
+
+          const ready = await waitForPano(panoId);
+          if (!ready) {
+            post({
+              type:'roadviewError',
+              requestId:cmd.requestId,
+              message:`pano ${panoId} 전환 완료를 확인하지 못했습니다.`
+            });
+            return;
+          }
+
+          const pos = ready.position;
+          const pan = bearingDegrees(pos.getLat(), pos.getLng(), Number(cmd.targetLat), Number(cmd.targetLng));
+          roadview.setViewpoint(new kakao.maps.Viewpoint(pan, Number(cmd.tilt || 0), Number(cmd.zoom || 0)));
+
+          // Viewpoint/tiles need a brief settle period after the pano switch.
+          await sleep(650);
+          message('');
+          post({
+            type:'roadviewReady',
+            requestId:cmd.requestId,
+            panoId:ready.panoId,
+            pan,
+            lat:pos.getLat(),
+            lng:pos.getLng()
+          });
         } catch (error) {
           post({ type:'roadviewError', requestId:cmd.requestId, message:error?.message || String(error) });
         }
