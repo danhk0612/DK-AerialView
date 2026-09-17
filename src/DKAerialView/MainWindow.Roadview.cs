@@ -7,6 +7,7 @@ public partial class MainWindow
 {
     public async Task<IReadOnlyList<RoadviewReferenceItem>> CollectKakaoRoadviewReferencesAsync(
         AerialGenerationOptions options,
+        IProgress<RoadviewCollectionProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         var service = new KakaoRoadviewReferenceService();
@@ -16,6 +17,7 @@ public partial class MainWindow
             _latitude,
             _longitude,
             options,
+            progress,
             cancellationToken);
     }
 }
