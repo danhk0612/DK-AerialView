@@ -5,3 +5,5 @@ obj/
 *.suo
 *.cache
 artifacts/
+publish/
+src/DKAerialView/Assets/AppIcon.ico
