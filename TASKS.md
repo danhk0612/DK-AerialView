@@ -26,7 +26,7 @@
 - [ ] T24 AI 조감도 실제 OpenRouter 결과 품질 검증 및 프롬프트 조정
 - [x] T25 AI 조감도 옵션에 Kakao Roadview 참조/거리/검색 반경 추가
 - [x] T26 별도 숨김 WebView2 Kakao Roadview 캡처 호스트 구현
-- [x] T27 현재 중심 기준 북/동/남/서 Roadview 자동 수집 + 대상 방향 pan 자동 계산
+- [x] T27 현재 중심 기준 주변 Roadview 자동 수집 + 대상 방향 pan 자동 계산
 - [x] T28 항공사진 + Roadview 다중 reference OpenRouter 요청 연결 (모델 최대 reference 수 자동 제한)
 - [ ] T29 Kakao Roadview 실제 캡처/다중 reference/AI 조감도 품질 검증
 - [x] T30 Kakao 전용 MapHost 재구성: 좌클릭 드래그 이동 / 휠 0.1 미세 줌 / 우클릭 드래그 2D 회전
@@ -34,13 +34,18 @@
 - [x] T32 AI 조감도 강제 사선 시점 프롬프트 + 실제 사용 Roadview 장수 상태/결과창 표시
 - [ ] T33 사용자 PC에서 Kakao 미세 줌/회전/회전 상태 드래그 방향 최종 검증
 - [x] T34 Roadview 최대 4장 미리보기/방향 표시/사용 체크 후 AI 생성 확인 단계
+- [x] T35 Roadview 검토창을 수집 진행창으로 통합: 현재 단계/진행률/로그/성공 썸네일 실시간 표시
+- [x] T36 Roadview 탐색 최적화: panoId 선탐색 → 고유 후보 선별 → 최종 후보만 실제 렌더링/캡처
+- [x] T37 Roadview 동일 pano 편향 완화: 후보점 로컬 35m 우선 탐색, 보조 방향/거리 단계 확장, 마지막에만 최대 검색 반경 사용
+- [ ] T38 사용자 PC 도심/시골에서 고유 pano 후보 다양성 및 수집 속도 검증
 
 ## 실제 실행 검증 항목
 
 - Kakao SkyView: 지도 로드, 주소 검색, 0.1 단위 미세 줌, 0~359° 2D 회전, 회전 상태 화면 방향 드래그, 캡처
 - Kakao 지도 입력: 왼쪽 드래그 이동, 마우스 휠 미세 줌, 오른쪽 드래그 회전
-- Kakao Roadview: 중심 기준 4방향 pano 검색, 대상 중심 자동 pan, 숨김 WebView2 캡처, 미존재 방향 건너뛰기
-- Roadview 검토: 수집된 최대 4장 방향별 미리보기, 개별 사용 체크, 항공사진만 진행, 취소 후 옵션창 복귀
+- Kakao Roadview: 중심 주변 panoId 선탐색, 고유 pano 중복 제거, 방향 분산 선별, 대상 중심 자동 pan, 최종 후보만 숨김 WebView2 렌더링/캡처
+- Roadview 탐색: 우선 거리 기본 8방향 → 보조 8방향 → 추가 거리 단계, 로컬 약 35m 반경 우선, 부족할 때만 최대 검색 반경 확장
+- Roadview 검토: 수집 시작 전에 창 표시, 탐색/캡처 단계·고유 후보·중복·실패·로그 실시간 표시, 성공 썸네일 즉시 추가, 개별 사용 체크
 - OpenRouter AI 향상: 모델 목록 조회, reference 이미지 요청, 결과 비교/저장
 - OpenRouter AI 조감도: 항공사진을 1번 기준 reference로 사용, Roadview는 높이/외벽/지붕 추정용 보조 reference로 사용, 모델 최대 reference 수 자동 제한, 강제 사선 시점 재구성
 - MapHost/RoadviewHost Origin: `https://app.dk-aerialview.local`
