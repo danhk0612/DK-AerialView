@@ -72,6 +72,27 @@
       return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
 
+    function angularDifference(a, b) {
+      const d = Math.abs((((Number(a) - Number(b)) % 360) + 540) % 360 - 180);
+      return d;
+    }
+
+    function samePosition(a, b, epsilon = 0.0000005) {
+      if (!a || !b) return false;
+      return Math.abs(Number(a.lat) - Number(b.lat)) <= epsilon &&
+             Math.abs(Number(a.lng) - Number(b.lng)) <= epsilon;
+    }
+
+    function readPosition() {
+      try {
+        const pos = roadview?.getPosition?.();
+        if (!pos) return null;
+        return { lat:Number(pos.getLat()), lng:Number(pos.getLng()) };
+      } catch (_) {
+        return null;
+      }
+    }
+
     function probe(cmd) {
       if (!apiKey) {
         post({ type:'panoProbeResult', requestId:cmd.requestId, panoId:0 });
@@ -95,20 +116,74 @@
       });
     }
 
-    async function waitForPano(targetPanoId, timeoutMs = 8000) {
-      const started = Date.now();
-      while (Date.now() - started < timeoutMs) {
+    async function waitForPanoAndPosition(targetPanoId, previousPanoId, previousPosition, timeoutMs = 8000) {
+      let panoChanged = Number(previousPanoId || 0) !== Number(targetPanoId);
+      let positionChanged = !previousPosition;
+      let eventPositionChanged = false;
+
+      const onPanoChanged = () => {
         try {
-          const currentPanoId = Number(roadview?.getPanoId?.() || 0);
-          const pos = roadview?.getPosition?.();
-          if (currentPanoId === Number(targetPanoId) && pos) {
-            return { panoId: currentPanoId, position: pos };
-          }
+          panoChanged = Number(roadview?.getPanoId?.() || 0) === Number(targetPanoId);
         } catch (_) {
         }
-        await sleep(100);
+      };
+      const onPositionChanged = () => { eventPositionChanged = true; };
+
+      kakao.maps.event.addListener(roadview, 'panoid_changed', onPanoChanged);
+      kakao.maps.event.addListener(roadview, 'position_changed', onPositionChanged);
+
+      try {
+        const started = Date.now();
+        let stableSamples = 0;
+        let lastPosition = null;
+
+        while (Date.now() - started < timeoutMs) {
+          let currentPanoId = 0;
+          try { currentPanoId = Number(roadview?.getPanoId?.() || 0); } catch (_) {}
+          const currentPosition = readPosition();
+
+          if (currentPanoId === Number(targetPanoId)) panoChanged = true;
+          if (currentPosition && (!previousPosition || !samePosition(currentPosition, previousPosition) || eventPositionChanged)) {
+            positionChanged = true;
+          }
+
+          if (panoChanged && positionChanged && currentPosition) {
+            if (lastPosition && samePosition(currentPosition, lastPosition, 0.0000001)) {
+              stableSamples++;
+            } else {
+              stableSamples = 0;
+            }
+            lastPosition = currentPosition;
+
+            if (stableSamples >= 2) {
+              return { panoId:currentPanoId, position:currentPosition };
+            }
+          }
+
+          await sleep(100);
+        }
+        return null;
+      } finally {
+        kakao.maps.event.removeListener(roadview, 'panoid_changed', onPanoChanged);
+        kakao.maps.event.removeListener(roadview, 'position_changed', onPositionChanged);
       }
-      return null;
+    }
+
+    async function applyAndVerifyViewpoint(pan, tilt, zoom) {
+      const target = new kakao.maps.Viewpoint(Number(pan), Number(tilt || 0), Number(zoom || 0));
+      roadview.setViewpoint(target);
+      await sleep(180);
+
+      try {
+        const actual = roadview.getViewpoint();
+        if (!actual || angularDifference(actual.pan, pan) > 1.0 || Math.abs(Number(actual.tilt) - Number(tilt || 0)) > 1.0) {
+          roadview.setViewpoint(target);
+          await sleep(180);
+        }
+      } catch (_) {
+        roadview.setViewpoint(target);
+        await sleep(180);
+      }
     }
 
     function render(cmd) {
@@ -131,32 +206,47 @@
             return;
           }
 
+          let previousPanoId = 0;
+          try { previousPanoId = Number(roadview.getPanoId() || 0); } catch (_) {}
+          const previousPosition = readPosition();
+
           roadview.setPanoId(panoId, searchPosition);
 
-          const ready = await waitForPano(panoId);
+          const ready = await waitForPanoAndPosition(panoId, previousPanoId, previousPosition);
           if (!ready) {
             post({
               type:'roadviewError',
               requestId:cmd.requestId,
-              message:`pano ${panoId} 전환 완료를 확인하지 못했습니다.`
+              message:`pano ${panoId}의 위치 전환 완료를 확인하지 못했습니다.`
             });
             return;
           }
 
-          const pos = ready.position;
-          const pan = bearingDegrees(pos.getLat(), pos.getLng(), Number(cmd.targetLat), Number(cmd.targetLng));
-          roadview.setViewpoint(new kakao.maps.Viewpoint(pan, Number(cmd.tilt || 0), Number(cmd.zoom || 0)));
+          // Read the final roadview position only after both pano and position have settled.
+          const settledPosition = readPosition() || ready.position;
+          const targetLat = Number(cmd.targetLat);
+          const targetLng = Number(cmd.targetLng);
+          const pan = bearingDegrees(settledPosition.lat, settledPosition.lng, targetLat, targetLng);
 
-          // Viewpoint/tiles need a brief settle period after the pano switch.
-          await sleep(650);
+          await applyAndVerifyViewpoint(pan, Number(cmd.tilt || 0), Number(cmd.zoom || 0));
+
+          // Give imagery tiles a brief settle period after viewpoint adjustment.
+          await sleep(450);
+          const actualViewpoint = (() => {
+            try { return roadview.getViewpoint(); } catch (_) { return null; }
+          })();
+
           message('');
           post({
             type:'roadviewReady',
             requestId:cmd.requestId,
             panoId:ready.panoId,
             pan,
-            lat:pos.getLat(),
-            lng:pos.getLng()
+            actualPan:actualViewpoint ? Number(actualViewpoint.pan) : pan,
+            lat:settledPosition.lat,
+            lng:settledPosition.lng,
+            targetLat,
+            targetLng
           });
         } catch (error) {
           post({ type:'roadviewError', requestId:cmd.requestId, message:error?.message || String(error) });
