@@ -62,7 +62,7 @@
 
             <TextBlock Grid.Row="6" Text="카카오 로드뷰 참조" VerticalAlignment="Top" Margin="0,5,0,0"/>
             <StackPanel Grid.Row="6" Grid.Column="1" Margin="8">
-                <CheckBox x:Name="UseRoadviewCheckBox" Content="북/동/남/서 로드뷰를 AI 참조 이미지로 사용" IsChecked="True"/>
+                <CheckBox x:Name="UseRoadviewCheckBox" Content="주변 카카오 로드뷰를 AI 참조 이미지로 사용" IsChecked="True"/>
                 <TextBlock Margin="0,5,0,0" Foreground="#666" TextWrapping="Wrap"
                            Text="항공사진은 배치 기준으로, 로드뷰는 건물 높이·외벽·지붕 형태 추정에 사용합니다."/>
             </StackPanel>
@@ -75,13 +75,17 @@
                 <ComboBoxItem Content="200 m" Tag="200"/>
             </ComboBox>
 
-            <TextBlock Grid.Row="8" Text="검색 반경" VerticalAlignment="Center"/>
-            <ComboBox x:Name="RoadviewRadiusBox" Grid.Row="8" Grid.Column="1" Height="32" Margin="8">
-                <ComboBoxItem Content="50 m" Tag="50"/>
-                <ComboBoxItem Content="100 m" Tag="100" IsSelected="True"/>
-                <ComboBoxItem Content="150 m" Tag="150"/>
-                <ComboBoxItem Content="200 m" Tag="200"/>
-            </ComboBox>
+            <TextBlock Grid.Row="8" Text="최대 검색 반경" VerticalAlignment="Center"/>
+            <StackPanel Grid.Row="8" Grid.Column="1" Margin="8">
+                <ComboBox x:Name="RoadviewRadiusBox" Height="32">
+                    <ComboBoxItem Content="50 m" Tag="50"/>
+                    <ComboBoxItem Content="100 m" Tag="100" IsSelected="True"/>
+                    <ComboBoxItem Content="150 m" Tag="150"/>
+                    <ComboBoxItem Content="200 m" Tag="200"/>
+                </ComboBox>
+                <TextBlock Margin="0,5,0,0" Foreground="#777" TextWrapping="Wrap"
+                           Text="서로 다른 pano 확보를 위해 먼저 후보점 주변 약 35m만 탐색하고, 부족할 때 방향·거리를 확장한 뒤 마지막에만 이 최대 반경을 사용합니다."/>
+            </StackPanel>
 
             <TextBlock Grid.Row="9" Grid.ColumnSpan="2" Margin="8,18,8,8" Foreground="#666" TextWrapping="Wrap"
                        Text="AI 조감도 생성은 실제 사진을 참고해 시점을 재구성합니다. 구조 보존을 강하게 지시하지만 AI 결과이므로 측량·도면용 정확성을 보장하지 않습니다."/>
