@@ -5,7 +5,7 @@ namespace DKAerialView;
 
 public partial class MainWindow
 {
-    public async Task<IReadOnlyList<byte[]>> CollectKakaoRoadviewReferencesAsync(
+    public async Task<IReadOnlyList<RoadviewReferenceItem>> CollectKakaoRoadviewReferencesAsync(
         AerialGenerationOptions options,
         CancellationToken cancellationToken = default)
     {
