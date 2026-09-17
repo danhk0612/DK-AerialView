@@ -69,28 +69,58 @@ public partial class AerialGenerationWindow : Window
 
         if (options.UseKakaoRoadviewReferences && Owner is MainWindow mainWindow)
         {
+            IReadOnlyList<RoadviewReferenceItem> collected = Array.Empty<RoadviewReferenceItem>();
+
             try
             {
                 _collectingRoadview = true;
                 IsEnabled = false;
                 Title = "AI 조감도 생성 - 카카오 로드뷰 참조 수집 중...";
-                options.RoadviewReferences = await mainWindow.CollectKakaoRoadviewReferencesAsync(options);
+                collected = await mainWindow.CollectKakaoRoadviewReferencesAsync(options);
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
                     this,
-                    $"카카오 로드뷰 참조 수집에 실패했습니다. 항공사진만으로 계속 진행합니다.\n\n{ex.Message}",
+                    $"카카오 로드뷰 참조 수집에 실패했습니다.\n\n{ex.Message}",
                     "DK AerialView",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
-                options.RoadviewReferences = Array.Empty<byte[]>();
             }
             finally
             {
                 IsEnabled = true;
                 Title = "AI 조감도 생성";
                 _collectingRoadview = false;
+            }
+
+            if (collected.Count == 0)
+            {
+                var proceed = MessageBox.Show(
+                    this,
+                    "수집된 카카오 로드뷰가 없습니다.\n항공사진만으로 AI 조감도 생성을 계속할까요?",
+                    "카카오 로드뷰 참조 없음",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (proceed != MessageBoxResult.Yes)
+                    return;
+
+                options.RoadviewReferences = Array.Empty<byte[]>();
+            }
+            else
+            {
+                var reviewWindow = new RoadviewReviewWindow(collected)
+                {
+                    Owner = this
+                };
+
+                if (reviewWindow.ShowDialog() != true)
+                    return;
+
+                options.RoadviewReferences = reviewWindow.SelectedReferences
+                    .Select(item => item.ImageBytes)
+                    .ToArray();
             }
         }
 
