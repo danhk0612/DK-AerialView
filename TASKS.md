@@ -33,12 +33,14 @@
 - [x] T31 회전 상태 화면 좌표 기준 드래그 보정 (화면 벡터 역회전 후 지도 중심 이동)
 - [x] T32 AI 조감도 강제 사선 시점 프롬프트 + 실제 사용 Roadview 장수 상태/결과창 표시
 - [ ] T33 사용자 PC에서 Kakao 미세 줌/회전/회전 상태 드래그 방향 최종 검증
+- [x] T34 Roadview 최대 4장 미리보기/방향 표시/사용 체크 후 AI 생성 확인 단계
 
 ## 실제 실행 검증 항목
 
 - Kakao SkyView: 지도 로드, 주소 검색, 0.1 단위 미세 줌, 0~359° 2D 회전, 회전 상태 화면 방향 드래그, 캡처
 - Kakao 지도 입력: 왼쪽 드래그 이동, 마우스 휠 미세 줌, 오른쪽 드래그 회전
 - Kakao Roadview: 중심 기준 4방향 pano 검색, 대상 중심 자동 pan, 숨김 WebView2 캡처, 미존재 방향 건너뛰기
+- Roadview 검토: 수집된 최대 4장 방향별 미리보기, 개별 사용 체크, 항공사진만 진행, 취소 후 옵션창 복귀
 - OpenRouter AI 향상: 모델 목록 조회, reference 이미지 요청, 결과 비교/저장
 - OpenRouter AI 조감도: 항공사진을 1번 기준 reference로 사용, Roadview는 높이/외벽/지붕 추정용 보조 reference로 사용, 모델 최대 reference 수 자동 제한, 강제 사선 시점 재구성
 - MapHost/RoadviewHost Origin: `https://app.dk-aerialview.local`
