@@ -8,6 +8,7 @@ public sealed class KakaoRoadviewReferenceService
     private const double EarthRadiusMeters = 6378137.0;
     private const int MaxReferences = 4;
     private const int ProbeConcurrency = 4;
+    private const int PreferredLocalProbeRadiusMeters = 35;
 
     public async Task<IReadOnlyList<RoadviewReferenceItem>> CollectAsync(
         Window owner,
@@ -23,11 +24,12 @@ public sealed class KakaoRoadviewReferenceService
 
         var references = new List<RoadviewReferenceItem>();
         var candidates = new Dictionary<long, ProbeCandidate>();
-        var bearings = new[] { 0d, 45d, 90d, 135d, 180d, 225d, 270d, 315d };
-        var distances = BuildSearchDistances(options.RoadviewDistanceMeters);
         var duplicateCount = 0;
         var failureCount = 0;
         var captureWindow = new RoadviewCaptureWindow(kakaoJavaScriptKey);
+        var probeStages = BuildProbeStages(options.RoadviewDistanceMeters, options.RoadviewSearchRadiusMeters);
+        var totalPlannedProbes = probeStages.Sum(stage => stage.Bearings.Count);
+        var completedProbes = 0;
 
         void Report(
             string phase,
@@ -62,15 +64,19 @@ public sealed class KakaoRoadviewReferenceService
 
             using var probeGate = new SemaphoreSlim(ProbeConcurrency);
 
-            foreach (var distance in distances)
+            for (var stageIndex = 0; stageIndex < probeStages.Count; stageIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (candidates.Count >= MaxReferences)
+                    break;
+
+                var stage = probeStages[stageIndex];
                 Report(
                     "탐색",
-                    0,
-                    bearings.Length,
-                    $"{distance}m 단계",
-                    $"{distance}m 거리의 8방향에서 panoId만 빠르게 탐색합니다. (동시 최대 {ProbeConcurrency}개)");
+                    completedProbes,
+                    totalPlannedProbes,
+                    $"탐색 단계 {stageIndex + 1}/{probeStages.Count}",
+                    $"{stage.Description} · 검색 반경 {stage.RadiusMeters}m · 고유 pano 후보 {candidates.Count}개");
 
                 async Task<ProbeOutcome> ProbeAsync(double bearing)
                 {
@@ -80,18 +86,19 @@ public sealed class KakaoRoadviewReferenceService
                         var (searchLat, searchLng) = Offset(
                             targetLatitude,
                             targetLongitude,
-                            distance,
+                            stage.DistanceMeters,
                             bearing);
                         try
                         {
                             var panoId = await captureWindow.ProbeNearestPanoIdAsync(
                                 searchLat,
                                 searchLng,
-                                options.RoadviewSearchRadiusMeters,
+                                stage.RadiusMeters,
                                 cancellationToken);
                             return new ProbeOutcome(
                                 bearing,
-                                distance,
+                                stage.DistanceMeters,
+                                stage.RadiusMeters,
                                 searchLat,
                                 searchLng,
                                 panoId,
@@ -99,11 +106,15 @@ public sealed class KakaoRoadviewReferenceService
                         }
                         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                         {
-                            return new ProbeOutcome(bearing, distance, searchLat, searchLng, null, "시간 초과");
+                            return new ProbeOutcome(
+                                bearing, stage.DistanceMeters, stage.RadiusMeters,
+                                searchLat, searchLng, null, "시간 초과");
                         }
                         catch (Exception ex)
                         {
-                            return new ProbeOutcome(bearing, distance, searchLat, searchLng, null, ex.Message);
+                            return new ProbeOutcome(
+                                bearing, stage.DistanceMeters, stage.RadiusMeters,
+                                searchLat, searchLng, null, ex.Message);
                         }
                     }
                     finally
@@ -112,25 +123,23 @@ public sealed class KakaoRoadviewReferenceService
                     }
                 }
 
-                var pending = bearings.Select(ProbeAsync).ToList();
-                var stageCompleted = 0;
-
+                var pending = stage.Bearings.Select(ProbeAsync).ToList();
                 while (pending.Count > 0)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var completedTask = await Task.WhenAny(pending);
                     pending.Remove(completedTask);
                     var outcome = await completedTask;
-                    stageCompleted++;
+                    completedProbes++;
 
-                    var label = $"{DirectionLabel(outcome.Bearing)} {outcome.DistanceMeters}m";
+                    var label = $"{DirectionLabel(outcome.Bearing)} {outcome.DistanceMeters}m / 반경 {outcome.RadiusMeters}m";
                     if (!string.IsNullOrWhiteSpace(outcome.Error))
                     {
                         failureCount++;
                         Report(
                             "탐색",
-                            stageCompleted,
-                            bearings.Length,
+                            completedProbes,
+                            totalPlannedProbes,
                             label,
                             $"[실패] {label}: {outcome.Error}");
                         continue;
@@ -141,10 +150,10 @@ public sealed class KakaoRoadviewReferenceService
                         failureCount++;
                         Report(
                             "탐색",
-                            stageCompleted,
-                            bearings.Length,
+                            completedProbes,
+                            totalPlannedProbes,
                             label,
-                            $"[없음] {label}: 검색 반경 안에 pano가 없습니다.");
+                            $"[없음] {label}: 주변 pano 없음");
                         continue;
                     }
 
@@ -153,10 +162,10 @@ public sealed class KakaoRoadviewReferenceService
                         duplicateCount++;
                         Report(
                             "탐색",
-                            stageCompleted,
-                            bearings.Length,
+                            completedProbes,
+                            totalPlannedProbes,
                             label,
-                            $"[중복] {label}: pano {outcome.PanoId.Value}는 이미 후보에 있습니다.");
+                            $"[중복] {label}: pano {outcome.PanoId.Value}는 이미 후보에 있음");
                         continue;
                     }
 
@@ -171,29 +180,22 @@ public sealed class KakaoRoadviewReferenceService
 
                     Report(
                         "탐색",
-                        stageCompleted,
-                        bearings.Length,
+                        completedProbes,
+                        totalPlannedProbes,
                         label,
-                        $"[후보] {label}: 고유 pano 후보 {candidates.Count}개 확보.");
+                        $"[후보] pano {outcome.PanoId.Value} 추가 · 고유 후보 {candidates.Count}개");
                 }
 
                 if (candidates.Count >= MaxReferences)
                 {
                     Report(
                         "탐색",
-                        bearings.Length,
-                        bearings.Length,
-                        $"{distance}m 단계 완료",
-                        $"고유 pano 후보 {candidates.Count}개를 확보해 추가 거리 탐색을 생략합니다.");
+                        completedProbes,
+                        totalPlannedProbes,
+                        $"탐색 단계 {stageIndex + 1} 완료",
+                        $"고유 pano 후보 {candidates.Count}개를 확보해 남은 탐색 단계를 생략합니다.");
                     break;
                 }
-
-                Report(
-                    "탐색",
-                    bearings.Length,
-                    bearings.Length,
-                    $"{distance}m 단계 완료",
-                    $"고유 pano가 {candidates.Count}개뿐이라 다음 거리 단계로 탐색 범위를 확장합니다.");
             }
 
             if (candidates.Count == 0)
@@ -206,7 +208,7 @@ public sealed class KakaoRoadviewReferenceService
             Report(
                 "캡처",
                 0,
-                captureOrder.Count,
+                Math.Min(captureOrder.Count, MaxReferences),
                 "캡처 준비",
                 $"고유 pano 후보 {candidates.Count}개 중 방향 분산이 좋은 후보부터 실제 로드뷰를 렌더링합니다.");
 
@@ -221,10 +223,10 @@ public sealed class KakaoRoadviewReferenceService
                 var candidateLabel = $"{DirectionLabel(candidate.BearingDegrees)} {candidate.RequestedDistanceMeters}m";
                 Report(
                     "캡처",
-                    captureAttempt,
-                    captureOrder.Count,
+                    Math.Min(captureAttempt, MaxReferences),
+                    MaxReferences,
                     candidateLabel,
-                    $"[캡처] pano {candidate.PanoId}를 렌더링하고 대상 중심 방향으로 시점을 맞추는 중입니다.");
+                    $"[캡처] pano {candidate.PanoId}를 실제 로드뷰로 렌더링 중입니다.");
 
                 try
                 {
@@ -243,8 +245,8 @@ public sealed class KakaoRoadviewReferenceService
                         failureCount++;
                         Report(
                             "캡처",
-                            captureAttempt,
-                            captureOrder.Count,
+                            Math.Min(captureAttempt, MaxReferences),
+                            MaxReferences,
                             candidateLabel,
                             $"[캡처 실패] pano {candidate.PanoId}: 다음 후보를 시도합니다.");
                         continue;
@@ -277,8 +279,8 @@ public sealed class KakaoRoadviewReferenceService
                     references.Add(item);
                     Report(
                         "캡처",
-                        captureAttempt,
-                        captureOrder.Count,
+                        Math.Min(captureAttempt, MaxReferences),
+                        MaxReferences,
                         candidateLabel,
                         $"[성공] {item.DisplayLabel} 로드뷰를 확보했습니다.",
                         item);
@@ -288,8 +290,8 @@ public sealed class KakaoRoadviewReferenceService
                     failureCount++;
                     Report(
                         "캡처",
-                        captureAttempt,
-                        captureOrder.Count,
+                        Math.Min(captureAttempt, MaxReferences),
+                        MaxReferences,
                         candidateLabel,
                         $"[시간 초과] pano {candidate.PanoId}: 다음 후보를 시도합니다.");
                 }
@@ -298,8 +300,8 @@ public sealed class KakaoRoadviewReferenceService
                     failureCount++;
                     Report(
                         "캡처",
-                        captureAttempt,
-                        captureOrder.Count,
+                        Math.Min(captureAttempt, MaxReferences),
+                        MaxReferences,
                         candidateLabel,
                         $"[오류] pano {candidate.PanoId}: {ex.Message}");
                 }
@@ -310,7 +312,7 @@ public sealed class KakaoRoadviewReferenceService
                 1,
                 1,
                 "완료",
-                $"로드뷰 수집 완료: 고유 후보 {candidates.Count}개 탐색, 실제 이미지 {references.Count}장 확보.",
+                $"로드뷰 수집 완료: 고유 pano 후보 {candidates.Count}개 탐색, 실제 이미지 {references.Count}장 확보.",
                 completed: true);
         }
         finally
@@ -319,6 +321,38 @@ public sealed class KakaoRoadviewReferenceService
         }
 
         return references;
+    }
+
+    private static IReadOnlyList<ProbeStage> BuildProbeStages(int preferredDistance, int maxSearchRadius)
+    {
+        var localRadius = Math.Max(10, Math.Min(maxSearchRadius, PreferredLocalProbeRadiusMeters));
+        var cardinalAndDiagonal = new[] { 0d, 45d, 90d, 135d, 180d, 225d, 270d, 315d };
+        var offsetBearings = new[] { 22.5d, 67.5d, 112.5d, 157.5d, 202.5d, 247.5d, 292.5d, 337.5d };
+        var stages = new List<ProbeStage>
+        {
+            new(preferredDistance, localRadius, cardinalAndDiagonal, $"우선 거리 {preferredDistance}m의 기본 8방향"),
+            new(preferredDistance, localRadius, offsetBearings, $"우선 거리 {preferredDistance}m의 보조 8방향")
+        };
+
+        foreach (var distance in new[] { 50, 100, 150, 200 }.Where(value => value != preferredDistance))
+        {
+            stages.Add(new ProbeStage(
+                distance,
+                localRadius,
+                cardinalAndDiagonal,
+                $"추가 거리 {distance}m의 8방향"));
+        }
+
+        if (maxSearchRadius > localRadius)
+        {
+            stages.Add(new ProbeStage(
+                preferredDistance,
+                maxSearchRadius,
+                cardinalAndDiagonal,
+                $"마지막 확장 검색 (최대 반경 {maxSearchRadius}m)"));
+        }
+
+        return stages;
     }
 
     private static IReadOnlyList<ProbeCandidate> RankCandidates(
@@ -352,15 +386,6 @@ public sealed class KakaoRoadviewReferenceService
     {
         var difference = Math.Abs((((left - right) % 360) + 360) % 360);
         return Math.Min(difference, 360 - difference);
-    }
-
-    private static IReadOnlyList<int> BuildSearchDistances(int preferredDistance)
-    {
-        var candidates = new[] { preferredDistance, 50, 100, 150, 200 };
-        return candidates
-            .Where(value => value > 0)
-            .Distinct()
-            .ToArray();
     }
 
     private static string DirectionLabel(double bearing)
@@ -433,6 +458,7 @@ public sealed class KakaoRoadviewReferenceService
     private sealed record ProbeOutcome(
         double Bearing,
         int DistanceMeters,
+        int RadiusMeters,
         double SearchLatitude,
         double SearchLongitude,
         long? PanoId,
@@ -444,4 +470,10 @@ public sealed class KakaoRoadviewReferenceService
         double SearchLongitude,
         double BearingDegrees,
         int RequestedDistanceMeters);
+
+    private sealed record ProbeStage(
+        int DistanceMeters,
+        int RadiusMeters,
+        IReadOnlyList<double> Bearings,
+        string Description);
 }
