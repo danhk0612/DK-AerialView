@@ -7,7 +7,7 @@ public sealed class KakaoRoadviewReferenceService
 {
     private const double EarthRadiusMeters = 6378137.0;
 
-    public async Task<IReadOnlyList<byte[]>> CollectAsync(
+    public async Task<IReadOnlyList<RoadviewReferenceItem>> CollectAsync(
         Window owner,
         string kakaoJavaScriptKey,
         double targetLatitude,
@@ -16,10 +16,16 @@ public sealed class KakaoRoadviewReferenceService
         CancellationToken cancellationToken = default)
     {
         if (!options.UseKakaoRoadviewReferences || string.IsNullOrWhiteSpace(kakaoJavaScriptKey))
-            return Array.Empty<byte[]>();
+            return Array.Empty<RoadviewReferenceItem>();
 
-        var references = new List<byte[]>();
-        var directions = new[] { 0d, 90d, 180d, 270d };
+        var references = new List<RoadviewReferenceItem>();
+        var directions = new[]
+        {
+            (Bearing: 0d, Label: "북측"),
+            (Bearing: 90d, Label: "동측"),
+            (Bearing: 180d, Label: "남측"),
+            (Bearing: 270d, Label: "서측")
+        };
 
         // Keep the capture window independent from the modal options window / disabled MainWindow.
         // It is fully hidden off-screen and closed as soon as collection finishes.
@@ -29,10 +35,14 @@ public sealed class KakaoRoadviewReferenceService
         {
             await captureWindow.InitializeAsync(cancellationToken);
 
-            foreach (var bearing in directions)
+            foreach (var direction in directions)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var (lat, lng) = Offset(targetLatitude, targetLongitude, options.RoadviewDistanceMeters, bearing);
+                var (lat, lng) = Offset(
+                    targetLatitude,
+                    targetLongitude,
+                    options.RoadviewDistanceMeters,
+                    direction.Bearing);
 
                 try
                 {
@@ -47,7 +57,16 @@ public sealed class KakaoRoadviewReferenceService
                         cancellationToken);
 
                     if (bytes is { Length: > 0 })
-                        references.Add(bytes);
+                    {
+                        references.Add(new RoadviewReferenceItem
+                        {
+                            Direction = direction.Label,
+                            BearingDegrees = direction.Bearing,
+                            RequestedDistanceMeters = options.RoadviewDistanceMeters,
+                            ImageBytes = bytes,
+                            IsSelected = true
+                        });
+                    }
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
