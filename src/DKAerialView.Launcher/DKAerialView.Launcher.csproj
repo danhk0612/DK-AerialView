@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>DK-AerialView</AssemblyName>
+    <RootNamespace>DKAerialView.Launcher</RootNamespace>
+    <Version>0.3.0-rc.1</Version>
+    <AssemblyVersion>0.3.0.0</AssemblyVersion>
+    <FileVersion>0.3.0.0</FileVersion>
+    <Authors>참빛바다</Authors>
+    <Product>DK AerialView Launcher</Product>
+    <Description>DK AerialView .NET Desktop Runtime 검사 및 실행 런처</Description>
+    <Copyright>Copyright © 2026 참빛바다</Copyright>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishAot>true</PublishAot>
+    <StripSymbols>true</StripSymbols>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <Target Name="GenerateApplicationIcon" BeforeTargets="PrepareForBuild" Condition="'$(OS)' == 'Windows_NT'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Generate-AppIcon.ps1&quot; -OutputPath &quot;$(MSBuildProjectDirectory)\Assets\AppIcon.ico&quot;" />
+  </Target>
+</Project>

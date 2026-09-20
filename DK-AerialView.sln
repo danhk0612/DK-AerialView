@@ -4,6 +4,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DKAerialView", "src\DKAerialView\DKAerialView.csproj", "{27BFA9C7-6C45-4A4E-A1E7-39B8A4DCB713}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DKAerialView.Launcher", "src\DKAerialView.Launcher\DKAerialView.Launcher.csproj", "{9B1A8C32-A0A0-4DB5-B7D1-5B26A52E88C1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -14,5 +16,9 @@ Global
 		{27BFA9C7-6C45-4A4E-A1E7-39B8A4DCB713}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{27BFA9C7-6C45-4A4E-A1E7-39B8A4DCB713}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{27BFA9C7-6C45-4A4E-A1E7-39B8A4DCB713}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9B1A8C32-A0A0-4DB5-B7D1-5B26A52E88C1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9B1A8C32-A0A0-4DB5-B7D1-5B26A52E88C1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9B1A8C32-A0A0-4DB5-B7D1-5B26A52E88C1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9B1A8C32-A0A0-4DB5-B7D1-5B26A52E88C1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

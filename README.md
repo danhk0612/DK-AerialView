@@ -5,7 +5,7 @@
 **DK AerialView**는 Kakao SkyView를 기반으로 항공 지도를 탐색하고, 현재 화면을 캡처하거나 OpenRouter 이미지 모델을 이용해 사선 조감도를 생성하는 Windows용 도구입니다.
 
 - 제작: **참빛바다**
-- 버전: **0.2.0**
+- 버전: **0.3.0-rc.1**
 - 라이선스: **MIT**
 
 ## 주요 기능
@@ -24,9 +24,36 @@
 
 ## 설치
 
-GitHub의 **Releases**에서 최신 `DK-AerialView-vX.Y.Z-win-x64.zip` 파일을 내려받아 원하는 폴더에 압축을 풀고 `DK-AerialView.exe`를 실행합니다.
+GitHub의 **Releases**에서 최신 `DK-AerialView-vX.Y.Z-win-x64.zip` 파일을 내려받아 원하는 폴더에 압축을 풉니다.
 
-배포 파일은 `win-x64` self-contained 형식이므로 별도의 .NET 8 설치는 필요하지 않습니다. Microsoft Edge WebView2 Runtime은 Windows 환경에 필요합니다.
+압축을 푼 뒤 루트의 **`DK-AerialView.exe`** 를 실행합니다.
+
+배포 파일에는 .NET Runtime 자체를 포함하지 않습니다. 실행 런처가 **Microsoft .NET 10 Desktop Runtime (x64)** 설치 여부를 먼저 확인하며, 설치되어 있지 않으면 안내창에서 Microsoft 공식 다운로드 페이지를 열 수 있습니다.
+
+Microsoft Edge WebView2 Runtime도 필요합니다.
+
+### 배포 폴더 구조
+
+```text
+DK-AerialView.exe
+app/
+  DK-AerialView.App.exe
+  Assets/
+    MapHost/index.html
+    RoadviewHost/index.html
+README.md
+LICENSE
+```
+
+`DK-AerialView.exe`는 .NET Runtime 없이도 실행되는 네이티브 런처입니다. 실제 WPF 프로그램은 `app/DK-AerialView.App.exe`이며, .NET 10 Desktop Runtime을 공유해 사용합니다.
+
+## 업데이트
+
+새 버전은 GitHub Releases에 같은 ZIP 형식으로 배포됩니다.
+
+현재 사용자 설정은 `%APPDATA%/DK-AerialView/settings.json`에 저장되므로 프로그램 폴더의 파일을 새 버전으로 교체해도 API Key와 기본 설정은 유지됩니다.
+
+현재 버전에서는 프로그램 내부 자동 업데이트는 수행하지 않습니다. 업데이트 시 새 Release ZIP을 받아 기존 프로그램 폴더를 교체하면 됩니다.
 
 ## 처음 설정
 
@@ -63,7 +90,7 @@ Roadview는 보조 참조 자료이며, AI 생성 결과는 실제 측량/설계
 
 ## 직접 빌드
 
-Windows PowerShell 기준입니다.
+Windows PowerShell 기준입니다. .NET 10 SDK와 NativeAOT 빌드에 필요한 Visual Studio C++ Build Tools가 필요합니다.
 
 ```powershell
 cd DK-AerialView
@@ -72,29 +99,40 @@ dotnet restore DK-AerialView.sln
 
 dotnet publish .\src\DKAerialView\DKAerialView.csproj `
   -c Release `
-  -r win-x64 `
-  --self-contained true `
-  -o .\publish\win-x64
+  -o .\publish\app
+
+dotnet publish .\src\DKAerialView.Launcher\DKAerialView.Launcher.csproj `
+  -c Release `
+  -o .\publish\launcher
 ```
 
-빌드 과정에서 `tools/Generate-AppIcon.ps1`이 Windows용 `AppIcon.ico`를 자동 생성해 EXE에 적용합니다.
+실제 앱은 **framework-dependent single-file** 형식으로 게시되며 .NET Desktop Runtime 자체는 포함하지 않습니다. 런처는 **NativeAOT win-x64**로 게시됩니다.
+
+빌드 과정에서 `tools/Generate-AppIcon.ps1`이 Windows용 아이콘을 자동 생성해 앱과 런처에 적용합니다.
 
 ## 자동 배포
 
-`main` 브랜치에 변경이 들어오면 GitHub Actions가 Windows 빌드와 self-contained publish를 검증합니다.
+`main` 브랜치에 변경이 들어오면 GitHub Actions가 .NET 10 Windows 빌드를 검증합니다.
 
 프로젝트의 `<Version>`에 해당하는 Release가 아직 없으면 Actions가 자동으로:
 
-1. `win-x64` self-contained publish
-2. ZIP 패키징
-3. `vX.Y.Z` 태그 및 GitHub Release 생성
-4. `DK-AerialView-vX.Y.Z-win-x64.zip` 첨부
+1. 실제 앱을 framework-dependent single-file로 publish
+2. NativeAOT 런처 publish
+3. `DK-AerialView.exe + app/` 구조로 ZIP 패키징
+4. .NET Runtime 파일이 ZIP에 섞이지 않았는지 검증
+5. `vX.Y.Z` 태그 및 GitHub Release 생성
+6. `DK-AerialView-vX.Y.Z-win-x64.zip` 첨부
 
-를 수행합니다. 같은 버전의 Release가 이미 존재하면 중복 배포하지 않습니다.
+를 수행합니다.
+
+버전에 `-rc`, `-beta` 같은 접미사가 있으면 GitHub **Pre-release**로 생성합니다. 같은 버전의 Release가 이미 존재하면 중복 배포하지 않습니다.
+
+수동으로 `v*` 태그를 push하는 별도 Release workflow도 동일한 배포 구조를 사용합니다.
 
 ## 기술 스택
 
-- .NET 8 / WPF
+- .NET 10 / WPF
+- NativeAOT 런처
 - Microsoft WebView2
 - Kakao 지도 Web API / Places / Roadview
 - OpenRouter Image API
