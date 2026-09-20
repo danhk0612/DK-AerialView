@@ -1,20 +1,24 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <AssemblyName>DK-AerialView</AssemblyName>
+    <AssemblyName>DK-AerialView.App</AssemblyName>
     <RootNamespace>DKAerialView</RootNamespace>
-    <Version>0.2.0</Version>
-    <AssemblyVersion>0.2.0.0</AssemblyVersion>
-    <FileVersion>0.2.0.0</FileVersion>
+    <Version>0.3.0-rc.1</Version>
+    <AssemblyVersion>0.3.0.0</AssemblyVersion>
+    <FileVersion>0.3.0.0</FileVersion>
     <Authors>참빛바다</Authors>
     <Product>DK AerialView</Product>
     <Description>Kakao SkyView와 Roadview를 활용한 지도 캡처 및 AI 조감도 생성 도구</Description>
     <Copyright>Copyright © 2026 참빛바다</Copyright>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <Target Name="GenerateApplicationIcon" BeforeTargets="PrepareForBuild" Condition="'$(OS)' == 'Windows_NT'">
@@ -28,9 +32,11 @@
   <ItemGroup>
     <Content Include="Assets\MapHost\index.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="Assets\RoadviewHost\index.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <None Include="Assets\AppIcon.svg" />
   </ItemGroup>
