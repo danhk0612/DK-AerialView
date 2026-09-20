@@ -18,20 +18,55 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
-      - name: Restore win-x64 runtime
-        run: dotnet restore src/DKAerialView/DKAerialView.csproj --runtime win-x64
+      - name: Restore
+        run: dotnet restore DK-AerialView.sln
 
-      - name: Publish win-x64
-        run: dotnet publish src/DKAerialView/DKAerialView.csproj --configuration Release --runtime win-x64 --self-contained true --output publish/win-x64 --no-restore -p:DebugType=None -p:DebugSymbols=false
+      - name: Publish framework-dependent app
+        run: dotnet publish src/DKAerialView/DKAerialView.csproj --configuration Release --output publish/app --no-restore -p:DebugType=None -p:DebugSymbols=false
+
+      - name: Publish native launcher
+        run: dotnet publish src/DKAerialView.Launcher/DKAerialView.Launcher.csproj --configuration Release --output publish/launcher --no-restore -p:DebugType=None -p:DebugSymbols=false
+
+      - name: Assemble portable package
+        shell: pwsh
+        run: |
+          $package = "publish/package"
+          $app = Join-Path $package "app"
+
+          Remove-Item $package -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $app -Force | Out-Null
+
+          Copy-Item "publish/launcher/DK-AerialView.exe" (Join-Path $package "DK-AerialView.exe") -Force
+          Copy-Item "publish/app/*" $app -Recurse -Force
+          Copy-Item README.md (Join-Path $package "README.md") -Force
+          Copy-Item LICENSE (Join-Path $package "LICENSE") -Force
+
+          $required = @(
+            (Join-Path $package "DK-AerialView.exe"),
+            (Join-Path $app "DK-AerialView.App.exe"),
+            (Join-Path $app "Assets/MapHost/index.html"),
+            (Join-Path $app "Assets/RoadviewHost/index.html")
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) { throw "Required package file is missing: $path" }
+          }
+
+          $runtimeFiles = Get-ChildItem $package -Recurse -File | Where-Object {
+            $_.Name -in @("coreclr.dll", "hostfxr.dll", "System.Private.CoreLib.dll")
+          }
+          if ($runtimeFiles) {
+            throw "Framework-dependent package unexpectedly contains .NET runtime files: $($runtimeFiles.FullName -join ', ')"
+          }
 
       - name: Create ZIP
         shell: pwsh
-        run: Compress-Archive -Path publish/win-x64/* -DestinationPath "DK-AerialView-${{ github.ref_name }}-win-x64.zip" -Force
+        run: Compress-Archive -Path publish/package/* -DestinationPath "DK-AerialView-${{ github.ref_name }}-win-x64.zip" -CompressionLevel Optimal -Force
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: DK-AerialView-${{ github.ref_name }}-win-x64.zip
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
